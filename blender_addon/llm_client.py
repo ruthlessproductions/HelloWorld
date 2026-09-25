@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import ssl
+import urllib.error
 import urllib.request
 
 SCENE_PARSE_SYSTEM = """You are a 3D scene architect. Given a natural language description, output a JSON scene specification.
@@ -128,10 +129,27 @@ class LLMClient:
             },
         )
 
-        with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=60) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=60) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8", errors="replace")
+            try:
+                detail = json.loads(error_body).get("error", {}).get("message", error_body)
+            except (json.JSONDecodeError, AttributeError):
+                detail = error_body[:300]
+            raise RuntimeError(f"Claude API error ({e.code}): {detail}") from None
 
-        return body["content"][0]["text"].strip()
+        if "error" in body:
+            msg = body["error"]
+            if isinstance(msg, dict):
+                msg = msg.get("message", str(msg))
+            raise RuntimeError(f"Claude API error: {msg}")
+
+        try:
+            return body["content"][0]["text"].strip()
+        except (KeyError, IndexError, TypeError):
+            raise RuntimeError(f"Unexpected Claude response format: {json.dumps(body)[:300]}")
 
     def _chat_gemini(self, prompt: str, system: str) -> str:
         url = (
@@ -151,10 +169,27 @@ class LLMClient:
             headers={"Content-Type": "application/json"},
         )
 
-        with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=60) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=60) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8", errors="replace")
+            try:
+                detail = json.loads(error_body).get("error", {}).get("message", error_body)
+            except (json.JSONDecodeError, AttributeError):
+                detail = error_body[:300]
+            raise RuntimeError(f"Gemini API error ({e.code}): {detail}") from None
 
-        return body["candidates"][0]["content"]["parts"][0]["text"].strip()
+        if "error" in body:
+            msg = body["error"]
+            if isinstance(msg, dict):
+                msg = msg.get("message", str(msg))
+            raise RuntimeError(f"Gemini API error: {msg}")
+
+        try:
+            return body["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except (KeyError, IndexError, TypeError):
+            raise RuntimeError(f"Unexpected Gemini response format: {json.dumps(body)[:300]}")
 
 
 # Backwards-compatible alias
