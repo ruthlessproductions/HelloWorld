@@ -154,42 +154,18 @@ def animate_camera(
     return cam_obj, tgt_obj
 
 
-def animate_from_prompt(prompt: str, api_key: str = None, model: str = "claude-sonnet-4-20250514"):
+def animate_from_prompt(
+    prompt: str,
+    provider: str = "claude",
+    api_key: str = None,
+    model: str = None,
+):
     from . import llm_client
-    client = llm_client.ClaudeClient(api_key=api_key, model=model)
 
-    import os, ssl, urllib.request, json as _json
-
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        raise ValueError("API key required for LLM camera animation")
-
-    payload = _json.dumps({
-        "model": model,
-        "max_tokens": 1024,
-        "system": CAMERA_PARSE_SYSTEM,
-        "messages": [{"role": "user", "content": prompt}],
-    }).encode("utf-8")
-
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": key,
-            "anthropic-version": "2023-06-01",
-        },
-    )
-
-    with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=30) as resp:
-        body = _json.loads(resp.read().decode("utf-8"))
-
-    text = body["content"][0]["text"].strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1]
-        text = text.rsplit("```", 1)[0]
-
-    spec = _json.loads(text)
+    client = llm_client.LLMClient(provider=provider, api_key=api_key, model=model)
+    text = client.chat(prompt, system=CAMERA_PARSE_SYSTEM)
+    text = llm_client._extract_json(text)
+    spec = json.loads(text)
 
     return animate_camera(
         motion_type=spec.get("motion_type", "turntable"),
