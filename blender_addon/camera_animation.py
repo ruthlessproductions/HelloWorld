@@ -224,7 +224,7 @@ def _animate_dolly_zoom(cam, cam_data, tgt, frames, target,
         cam.location = _cam_pos(target, dist, height, angle)
         cam.keyframe_insert(data_path="location", frame=f)
         cam_data.angle = math.radians(fov)
-        cam_data.keyframe_insert(data_path="angle", frame=f)
+        cam_data.keyframe_insert(data_path="lens", frame=f)
 
 
 def _animate_crane(cam, tgt, frames, target, distance, h_start, h_end, angle):
@@ -325,25 +325,35 @@ def _animate_dynamic_loop(cam, tgt, frames, target, distance, height):
         cam.location = _cam_pos(target, distance, height + h_offset, angle_deg)
         cam.keyframe_insert(data_path="location", frame=f)
 
-    if cam.animation_data and cam.animation_data.action:
-        for fcurve in cam.animation_data.action.fcurves:
-            for kp in fcurve.keyframe_points:
-                kp.interpolation = "BEZIER"
-                kp.handle_left_type = "AUTO"
-                kp.handle_right_type = "AUTO"
+    for fcurve in fcurves_of(cam):
+        for kp in fcurve.keyframe_points:
+            kp.interpolation = "BEZIER"
+            kp.handle_left_type = "AUTO"
+            kp.handle_right_type = "AUTO"
+
+
+def fcurves_of(id_data) -> list:
+    """F-curves of an ID's active action. Blender 5 removed Action.fcurves in favor of slotted channelbags."""
+    anim = id_data.animation_data
+    if not anim or not anim.action:
+        return []
+    if hasattr(anim.action, "fcurves"):
+        return list(anim.action.fcurves)
+    from bpy_extras import anim_utils
+    bag = anim_utils.action_get_channelbag_for_slot(anim.action, anim.action_slot)
+    return list(bag.fcurves) if bag else []
 
 
 def _animate_fov(cam_data, frames, fov_start, fov_end):
+    # "angle" is derived from lens and can't be keyframed; setting it updates lens.
     cam_data.angle = math.radians(fov_start)
-    cam_data.keyframe_insert(data_path="angle", frame=1)
+    cam_data.keyframe_insert(data_path="lens", frame=1)
     cam_data.angle = math.radians(fov_end)
-    cam_data.keyframe_insert(data_path="angle", frame=frames)
+    cam_data.keyframe_insert(data_path="lens", frame=frames)
 
 
 def _set_interpolation(obj, ease_in: bool, ease_out: bool):
-    if not obj.animation_data or not obj.animation_data.action:
-        return
-    for fcurve in obj.animation_data.action.fcurves:
+    for fcurve in fcurves_of(obj):
         for kp in fcurve.keyframe_points:
             kp.interpolation = "BEZIER"
             if ease_in and ease_out:

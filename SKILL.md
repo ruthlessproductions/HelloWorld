@@ -5,6 +5,8 @@ description: Generate 3D scenes from text prompts using LLM + World Model + Diff
 
 # AI 3D Scene Generator
 
+> For building scenes with a coding agent (Claude Code) and your installed Blender, use the skill in `.claude/skills/blender/SKILL.md` instead. It writes build scripts, runs Blender in the background, and checks its own renders. This document covers the older addon and pipeline.
+
 Generates complete 3D scenes from natural language descriptions using a three-stage pipeline:
 1. **LLM (Claude)** — parses text into structured scene descriptions
 2. **World Model** — enforces spatial constraints, resolves collisions, optimizes camera
