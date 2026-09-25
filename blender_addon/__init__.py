@@ -14,6 +14,16 @@ bl_info = {
     "category": "3D View",
 }
 
+if "bpy" in locals():
+    import importlib
+    importlib.reload(llm_client)
+    importlib.reload(scene_builder)
+    importlib.reload(world_model)
+    importlib.reload(camera_animation)
+    importlib.reload(video_export)
+else:
+    from . import camera_animation, llm_client, scene_builder, video_export, world_model
+
 import bpy
 from bpy.props import (
     BoolProperty,
@@ -22,8 +32,6 @@ from bpy.props import (
     IntProperty,
     StringProperty,
 )
-
-from . import camera_animation, llm_client, scene_builder, video_export, world_model
 
 
 # ---------------------------------------------------------------------------
@@ -59,19 +67,24 @@ class AIScenePreferences(bpy.types.AddonPreferences):
     model: EnumProperty(
         name="Claude Model",
         items=[
-            ("claude-sonnet-4-20250514", "Claude Sonnet", "Fast, cost-effective"),
-            ("claude-opus-4-20250514", "Claude Opus", "Most capable"),
+            ("claude-sonnet-5", "Claude Sonnet 5", "Fast, cost-effective"),
+            ("claude-opus-5", "Claude Opus 5", "Most capable"),
+            ("claude-haiku-4-5", "Claude Haiku 4.5", "Fastest, lightweight tasks"),
         ],
-        default="claude-sonnet-4-20250514",
+        default="claude-sonnet-5",
     )
 
     gemini_model: EnumProperty(
         name="Gemini Model",
         items=[
-            ("gemini-2.5-flash", "Gemini 2.5 Flash", "Fast, cost-effective"),
-            ("gemini-2.5-pro", "Gemini 2.5 Pro", "Most capable"),
+            ("gemini-3.8-flash", "Gemini 3.8 Flash", "Latest, most capable Flash"),
+            ("gemini-3.6-flash", "Gemini 3.6 Flash", "Improved code and agentic planning"),
+            ("gemini-3.5-flash", "Gemini 3.5 Flash", "Frontier-class performance"),
+            ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "Fastest, low-cost"),
+            ("gemini-2.5-pro", "Gemini 2.5 Pro", "Legacy Pro model"),
+            ("gemini-2.5-flash", "Gemini 2.5 Flash", "Legacy Flash model"),
         ],
-        default="gemini-2.5-flash",
+        default="gemini-3.8-flash",
     )
 
     def draw(self, context):

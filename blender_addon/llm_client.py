@@ -89,7 +89,7 @@ class LLMClient:
                 raise ValueError(
                     "Anthropic API key required. Set it in addon preferences or ANTHROPIC_API_KEY env var."
                 )
-            self.model = model or "claude-sonnet-4-20250514"
+            self.model = model or "claude-sonnet-5"
 
         elif self.provider == "gemini":
             self.api_key = api_key or os.environ.get("GOOGLE_API_KEY")
@@ -97,7 +97,7 @@ class LLMClient:
                 raise ValueError(
                     "Google API key required. Set it in addon preferences or GOOGLE_API_KEY env var."
                 )
-            self.model = model or "gemini-2.5-flash"
+            self.model = model or "gemini-3.8-flash"
 
         else:
             raise ValueError(f"Unknown provider: {provider}. Use 'claude' or 'gemini'.")
