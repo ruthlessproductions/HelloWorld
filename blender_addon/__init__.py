@@ -14,6 +14,16 @@ bl_info = {
     "category": "3D View",
 }
 
+if "bpy" in locals():
+    import importlib
+    importlib.reload(llm_client)
+    importlib.reload(scene_builder)
+    importlib.reload(world_model)
+    importlib.reload(camera_animation)
+    importlib.reload(video_export)
+else:
+    from . import camera_animation, llm_client, scene_builder, video_export, world_model
+
 import bpy
 from bpy.props import (
     BoolProperty,
@@ -22,8 +32,6 @@ from bpy.props import (
     IntProperty,
     StringProperty,
 )
-
-from . import camera_animation, llm_client, scene_builder, video_export, world_model
 
 
 # ---------------------------------------------------------------------------
