@@ -35,6 +35,7 @@ Install directly into Blender for a native panel in the 3D Viewport sidebar.
 - Type a scene description and click "Generate Script": the LLM writes a Blender Python script into the `AI_Scene_Script` text block
 - Review (or edit) it in a Text Editor area, then click "Run Script" to build the scene
 - If the script errors, click "Fix Error" to send the error back to the LLM for a corrected script
+- To iterate, type a change in the "Revise" box (e.g. "make the beak longer") and click "Revise Script": the LLM gets the current script (including your manual edits) plus earlier change requests, returns an updated script and a short note, and you review and run it again
 - The script runs with full Python access, so read it before running; the panel warns about OS, file, network, or `bpy.ops.wm` usage
 
 **Primitives mode:**
