@@ -74,6 +74,11 @@ def _create_object(
 
     bpy.ops.object.shade_smooth()
 
+    if primitive not in ("plane",):
+        subsurf = mesh_obj.modifiers.new(name="Subdivision", type="SUBSURF")
+        subsurf.levels = 1
+        subsurf.render_levels = 2
+
     for child_data in obj_data.get("children", []):
         _create_object(child_data, parent=mesh_obj, texture_size=texture_size)
 
