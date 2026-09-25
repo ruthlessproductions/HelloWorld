@@ -116,11 +116,7 @@ class LLMClient:
         return json.loads(_extract_json(text))
 
     def _chat_claude(self, prompt: str, system: str) -> str:
-        payload = {
-            "model": self.model,
-            "max_tokens": 4096,
-            "thinking": {"type": "disabled"},
-        }
+        payload = {"model": self.model, "max_tokens": 16000}
         if system:
             payload["system"] = system
         payload["messages"] = [{"role": "user", "content": prompt}]
@@ -128,7 +124,7 @@ class LLMClient:
         headers = {
             "Content-Type": "application/json",
             "x-api-key": self.api_key,
-            "anthropic-version": "2025-04-15",
+            "anthropic-version": "2023-06-01",
         }
         if self.workspace_id:
             headers["anthropic-workspace-id"] = self.workspace_id
