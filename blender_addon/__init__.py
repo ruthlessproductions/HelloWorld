@@ -134,9 +134,9 @@ class AISceneProperties(bpy.types.PropertyGroup):
         name="Render Engine",
         items=[
             ("CYCLES", "Cycles", "Path-traced rendering"),
-            ("BLENDER_EEVEE_NEXT", "EEVEE", "Real-time rendering"),
+            ("BLENDER_EEVEE", "EEVEE", "Real-time rendering"),
         ],
-        default="BLENDER_EEVEE_NEXT",
+        default="BLENDER_EEVEE",
     )
 
     texture_size: IntProperty(
