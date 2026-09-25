@@ -76,6 +76,7 @@ class AIScenePreferences(bpy.types.AddonPreferences):
         items=[
             ("claude-sonnet-5", "Claude Sonnet 5", "Fast, cost-effective"),
             ("claude-opus-5", "Claude Opus 5", "Most capable"),
+            ("claude-opus-5-5", "Claude Opus 5.5", "Latest, most capable"),
             ("claude-haiku-4-5", "Claude Haiku 4.5", "Fastest, lightweight tasks"),
         ],
         default="claude-sonnet-5",
