@@ -1,0 +1,15 @@
+anthropic>=0.39.0
+numpy>=1.24.0
+Pillow>=10.0.0
+trimesh>=4.0.0
+scipy>=1.11.0
+
+# Optional: GPU-accelerated diffusion textures
+# torch>=2.0.0
+# diffusers>=0.25.0
+# transformers>=4.36.0
+# accelerate>=0.25.0
+
+# Optional: high-quality offscreen rendering
+# pyrender>=0.1.45
+# PyOpenGL>=3.1.0
