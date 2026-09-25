@@ -20,9 +20,10 @@ if "bpy" in locals():
     importlib.reload(scene_builder)
     importlib.reload(world_model)
     importlib.reload(camera_animation)
+    importlib.reload(object_animation)
     importlib.reload(video_export)
 else:
-    from . import camera_animation, llm_client, scene_builder, video_export, world_model
+    from . import camera_animation, llm_client, object_animation, scene_builder, video_export, world_model
 
 import bpy
 from bpy.props import (
@@ -192,6 +193,13 @@ class AISceneProperties(bpy.types.PropertyGroup):
         default=24,
         min=12,
         max=60,
+    )
+
+    # -- Object animation --
+    obj_anim_prompt: StringProperty(
+        name="Animation",
+        description="Describe how objects should move (e.g., 'robot waves its arm')",
+        default="the cube spins 360 degrees",
     )
 
     # -- Video export --
@@ -434,6 +442,47 @@ class AISCENE_OT_animate_camera(bpy.types.Operator):
         return (avg[0] / n, avg[1] / n, avg[2] / n)
 
 
+class AISCENE_OT_animate_objects(bpy.types.Operator):
+    bl_idname = "aiscene.animate_objects"
+    bl_label = "Animate Objects"
+    bl_description = "Create keyframed object/bone animations from a text description"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        props = context.scene.ai_scene
+        prefs = context.preferences.addons[__package__].preferences
+
+        props.status = "Generating object animation with LLM..."
+
+        try:
+            provider = prefs.llm_provider
+            if provider == "claude":
+                api_key = prefs.api_key or None
+                model = prefs.model
+                workspace_id = prefs.workspace_id or None
+            else:
+                api_key = prefs.gemini_api_key or None
+                model = prefs.gemini_model
+                workspace_id = None
+
+            count = object_animation.animate_from_prompt(
+                props.obj_anim_prompt,
+                provider=provider,
+                api_key=api_key,
+                model=model,
+                workspace_id=workspace_id,
+            )
+            props.status = f"Animated {count} object(s)"
+            self.report({"INFO"}, f"Created animation for {count} object(s)")
+
+        except Exception as e:
+            props.status = f"Animation error: {e}"
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+
+        return {"FINISHED"}
+
+
 class AISCENE_OT_preview_camera(bpy.types.Operator):
     bl_idname = "aiscene.preview_camera"
     bl_label = "Preview"
@@ -576,6 +625,36 @@ class AISCENE_PT_camera_panel(bpy.types.Panel):
         layout.operator("aiscene.preview_camera", icon="PLAY")
 
 
+class AISCENE_PT_object_anim_panel(bpy.types.Panel):
+    bl_label = "Object Animation"
+    bl_idname = "AISCENE_PT_object_anim_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "AI Scene"
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.ai_scene
+
+        layout.label(text="Describe the motion:")
+        layout.prop(props, "obj_anim_prompt", text="")
+
+        mesh_count = sum(1 for o in context.scene.objects if o.type == "MESH")
+        armature_count = sum(1 for o in context.scene.objects if o.type == "ARMATURE")
+        info = f"{mesh_count} mesh"
+        if armature_count:
+            info += f", {armature_count} armature"
+        layout.label(text=f"Scene: {info}", icon="OUTLINER_OB_ARMATURE")
+
+        layout.separator()
+
+        row = layout.row(align=True)
+        row.scale_y = 1.4
+        row.operator("aiscene.animate_objects", icon="ARMATURE_DATA")
+
+        layout.operator("aiscene.preview_camera", icon="PLAY")
+
+
 class AISCENE_PT_video_panel(bpy.types.Panel):
     bl_label = "Video Export"
     bl_idname = "AISCENE_PT_video_panel"
@@ -631,11 +710,13 @@ classes = (
     AISCENE_OT_generate,
     AISCENE_OT_quick_generate,
     AISCENE_OT_animate_camera,
+    AISCENE_OT_animate_objects,
     AISCENE_OT_preview_camera,
     AISCENE_OT_export_video,
     AISCENE_OT_snapshot,
     AISCENE_PT_scene_panel,
     AISCENE_PT_camera_panel,
+    AISCENE_PT_object_anim_panel,
     AISCENE_PT_video_panel,
     AISCENE_PT_status_panel,
 )
