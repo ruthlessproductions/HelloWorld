@@ -34,6 +34,9 @@ if _reload:
     importlib.reload(object_animation)
     importlib.reload(video_export)
 
+import json
+import textwrap
+
 import bpy
 from bpy.props import (
     BoolProperty,
@@ -133,6 +136,15 @@ class AISceneProperties(bpy.types.PropertyGroup):
     )
 
     script_error: StringProperty(name="Script Error", default="")
+    script_note: StringProperty(name="LLM Note", default="")
+    script_prompt: StringProperty(name="Script Prompt", default="")
+    script_history: StringProperty(name="Revision History", default="[]")
+
+    revise_prompt: StringProperty(
+        name="Change",
+        description="Describe a change to the current script (e.g. 'make the beak longer')",
+        default="",
+    )
 
     prompt: StringProperty(
         name="Prompt",
@@ -297,26 +309,64 @@ def _script_ready_status(context, text, risky: list[str]) -> str:
     return status
 
 
+def _store_llm_script(operator, context, code: str, note: str, prefix: str = "") -> set:
+    props = context.scene.ai_scene
+    text = code_generator.store_script(code)
+    props.script_error = ""
+    props.script_note = note
+    risky = code_generator.find_risky_code(code)
+    props.status = prefix + _script_ready_status(context, text, risky)
+    operator.report({"WARNING"} if risky else {"INFO"}, props.status)
+    return {"FINISHED"}
+
+
+def _llm_failed(operator, context, e: Exception) -> set:
+    context.scene.ai_scene.status = f"LLM error: {e}"
+    operator.report({"ERROR"}, str(e))
+    return {"CANCELLED"}
+
+
 class AISCENE_OT_generate_script(bpy.types.Operator):
     bl_idname = "aiscene.generate_script"
     bl_label = "Generate Script"
-    bl_description = "Ask the LLM to write a Blender Python script for the prompt (does not run it)"
+    bl_description = "Ask the LLM to write a new Blender Python script for the prompt (does not run it)"
 
     def execute(self, context):
         props = context.scene.ai_scene
         try:
-            code = code_generator.generate_script(_make_client(context), props.prompt)
+            code, note = code_generator.generate_script(_make_client(context), props.prompt)
         except Exception as e:
-            props.status = f"LLM error: {e}"
-            self.report({"ERROR"}, str(e))
-            return {"CANCELLED"}
+            return _llm_failed(self, context, e)
 
-        text = code_generator.store_script(code)
-        props.script_error = ""
-        risky = code_generator.find_risky_code(code)
-        props.status = _script_ready_status(context, text, risky)
-        self.report({"WARNING"} if risky else {"INFO"}, props.status)
-        return {"FINISHED"}
+        props.script_prompt = props.prompt
+        props.script_history = "[]"
+        return _store_llm_script(self, context, code, note)
+
+
+class AISCENE_OT_revise_script(bpy.types.Operator):
+    bl_idname = "aiscene.revise_script"
+    bl_label = "Revise Script"
+    bl_description = "Send the current script (with your edits) and the change request to the LLM"
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.scene.ai_scene.revise_prompt.strip()) and code_generator.TEXT_NAME in bpy.data.texts
+
+    def execute(self, context):
+        props = context.scene.ai_scene
+        instruction = props.revise_prompt.strip()
+        history = json.loads(props.script_history or "[]")
+        code = bpy.data.texts[code_generator.TEXT_NAME].as_string()
+        try:
+            new_code, note = code_generator.revise_script(
+                _make_client(context), props.script_prompt or props.prompt, history, code, instruction,
+            )
+        except Exception as e:
+            return _llm_failed(self, context, e)
+
+        props.script_history = json.dumps(history + [instruction])
+        props.revise_prompt = ""
+        return _store_llm_script(self, context, new_code, note, prefix="Revised. ")
 
 
 class AISCENE_OT_run_script(bpy.types.Operator):
@@ -366,18 +416,17 @@ class AISCENE_OT_fix_script(bpy.types.Operator):
         props = context.scene.ai_scene
         code = bpy.data.texts[code_generator.TEXT_NAME].as_string()
         try:
-            fixed = code_generator.fix_script(_make_client(context), props.prompt, code, props.script_error)
+            fixed, note = code_generator.revise_script(
+                _make_client(context),
+                props.script_prompt or props.prompt,
+                json.loads(props.script_history or "[]"),
+                code,
+                code_generator.fix_error_instruction(props.script_error),
+            )
         except Exception as e:
-            props.status = f"LLM error: {e}"
-            self.report({"ERROR"}, str(e))
-            return {"CANCELLED"}
+            return _llm_failed(self, context, e)
 
-        text = code_generator.store_script(fixed)
-        props.script_error = ""
-        risky = code_generator.find_risky_code(fixed)
-        props.status = "Fixed. " + _script_ready_status(context, text, risky)
-        self.report({"WARNING"} if risky else {"INFO"}, props.status)
-        return {"FINISHED"}
+        return _store_llm_script(self, context, fixed, note, prefix="Fixed. ")
 
 
 class AISCENE_OT_generate(bpy.types.Operator):
@@ -730,7 +779,18 @@ class AISCENE_PT_scene_panel(bpy.types.Panel):
                 row.operator("aiscene.fix_script", icon="TOOL_SETTINGS")
                 err = layout.box()
                 for line in props.script_error.splitlines()[-3:]:
-                    err.label(text=line[:120], icon="ERROR")
+                    for chunk in textwrap.wrap(line, 70) or [""]:
+                        err.label(text=chunk, icon="ERROR")
+
+            if code_generator.TEXT_NAME in bpy.data.texts:
+                box = layout.box()
+                revisions = len(json.loads(props.script_history or "[]"))
+                box.label(text=f"Revise (revisions so far: {revisions})", icon="GREASEPENCIL")
+                if props.script_note:
+                    for chunk in textwrap.wrap(props.script_note, 60)[:6]:
+                        box.label(text=chunk)
+                box.prop(props, "revise_prompt", text="")
+                box.operator("aiscene.revise_script", icon="FILE_REFRESH")
             return
 
         row = layout.row(align=True)
@@ -858,6 +918,7 @@ classes = (
     AISCENE_OT_generate_script,
     AISCENE_OT_run_script,
     AISCENE_OT_fix_script,
+    AISCENE_OT_revise_script,
     AISCENE_OT_animate_camera,
     AISCENE_OT_animate_objects,
     AISCENE_OT_preview_camera,

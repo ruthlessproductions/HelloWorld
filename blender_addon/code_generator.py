@@ -15,7 +15,7 @@ TEXT_NAME = "AI_Scene_Script"
 
 CODE_GEN_SYSTEM = """You are an expert Blender technical artist. Write a Blender Python (bpy) script that builds the scene the user describes.
 
-Output exactly one ```python code block containing the complete script, and nothing else.
+Output exactly one ```python code block containing the complete script. After the code block, write one or two plain sentences saying what you built or changed; nothing else.
 
 Environment:
 - The script runs inside Blender 4.2 or newer (including 5.x) via exec(). If the user wanted the scene cleared, that already happened; do not delete existing objects.
@@ -34,7 +34,14 @@ Materials: Principled BSDF with plausible, distinct colors. Blender 4+ input nam
 
 Lighting and camera: add a ground plane unless the scene makes no sense with one, a key/fill/rim light setup (or a Sun for outdoor scenes), and a camera that frames the whole subject, assigned to scene.camera. Aim the camera with a Track To constraint or Vector.to_track_quat('-Z', 'Y').
 
-Structure the script with small helper functions (make_material, make_tube, and so on) and keep it under about 500 lines. Avoid APIs removed in Blender 4.1+, such as Mesh.use_auto_smooth and the bgl module.
+Structure the script with small helper functions (make_material, make_tube, and so on) and keep it under about 500 lines.
+
+bpy API details that are easy to get wrong:
+- Create data with bpy.data (meshes.new, curves.new, objects.new) and link objects with bpy.context.collection.objects.link(obj); avoid bpy.ops where the data API works.
+- Curves: curve = bpy.data.curves.new(name, "CURVE"); curve.dimensions = "3D"; spline = curve.splines.new("BEZIER"); spline.bezier_points.add(n - 1) (a new spline already has one point). Bezier points have handle_left_type and handle_right_type; there is no handle_type. Poly/NURBS points take 4D co (x, y, z, w). Tube thickness: curve.bevel_depth, curve.bevel_resolution, curve.use_fill_caps.
+- Meshes from vertex lists: mesh.from_pydata(verts, [], faces) then mesh.update().
+- Rotations are in radians; object.rotation_euler, not rotation.
+- Avoid APIs removed in Blender 4.1+, such as Mesh.use_auto_smooth and the bgl module.
 """
 
 _RISKY_PATTERNS = [
@@ -46,27 +53,41 @@ _RISKY_PATTERNS = [
 ]
 
 
-def generate_script(client, prompt: str) -> str:
-    text = client.chat(prompt, system=CODE_GEN_SYSTEM, max_tokens=32000, timeout=300)
-    return _extract_code(text)
+def generate_script(client, prompt: str) -> tuple[str, str]:
+    """Return (script, note) for a new scene description."""
+    return _ask(client, prompt)
 
 
-def fix_script(client, prompt: str, code: str, error: str) -> str:
-    message = (
-        f"Original request: {prompt}\n\n"
-        f"This script failed when run in Blender.\n\nError:\n{error}\n\n"
-        f"Script:\n```python\n{code}\n```\n\n"
-        "Return the complete corrected script."
+def revise_script(client, original_prompt: str, history: list[str], code: str, instruction: str) -> tuple[str, str]:
+    """Return (script, note) after applying a change request to the current script."""
+    parts = [f"Original request: {original_prompt}"]
+    if history:
+        earlier = "\n".join(f"{i}. {h}" for i, h in enumerate(history, 1))
+        parts.append(f"Earlier change requests, already applied to the script below:\n{earlier}")
+    parts.append(
+        "Current script (it may include manual edits by the user; keep them unless the request says otherwise):\n"
+        f"```python\n{code}\n```"
     )
-    text = client.chat(message, system=CODE_GEN_SYSTEM, max_tokens=32000, timeout=300)
-    return _extract_code(text)
+    parts.append(f"Change request: {instruction}")
+    parts.append("Return the complete updated script.")
+    return _ask(client, "\n\n".join(parts))
 
 
-def _extract_code(text: str) -> str:
+def fix_error_instruction(error: str) -> str:
+    return f"The script failed when run in Blender with this error. Fix it without changing anything else.\n{error}"
+
+
+def _ask(client, message: str) -> tuple[str, str]:
+    reply = client.chat(message, system=CODE_GEN_SYSTEM, max_tokens=32000, timeout=300)
+    return _split_reply(reply)
+
+
+def _split_reply(text: str) -> tuple[str, str]:
     match = re.search(r"```(?:python|py)?\s*\n(.*?)```", text, re.DOTALL)
-    if match:
-        return match.group(1).strip() + "\n"
-    return text.strip() + "\n"
+    if not match:
+        return text.strip() + "\n", ""
+    note = (text[: match.start()] + " " + text[match.end():]).strip()
+    return match.group(1).strip() + "\n", " ".join(note.split())[:400]
 
 
 def store_script(code: str) -> bpy.types.Text:

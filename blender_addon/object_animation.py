@@ -175,10 +175,10 @@ def _apply_bone_keyframes(armature_obj, bone, prop: str, keyframes: list[dict]):
 
 
 def _smooth_all_fcurves(scene):
+    from .camera_animation import fcurves_of
+
     for obj in scene.objects:
-        if not obj.animation_data or not obj.animation_data.action:
-            continue
-        for fcurve in obj.animation_data.action.fcurves:
+        for fcurve in fcurves_of(obj):
             for kp in fcurve.keyframe_points:
                 kp.interpolation = "BEZIER"
                 kp.handle_left_type = "AUTO_CLAMPED"
