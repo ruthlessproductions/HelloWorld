@@ -81,6 +81,7 @@ class LLMClient:
         provider: str = "claude",
         api_key: str | None = None,
         model: str | None = None,
+        workspace_id: str | None = None,
     ):
         self.provider = provider.lower()
 
@@ -91,6 +92,7 @@ class LLMClient:
                     "Anthropic API key required. Set it in addon preferences or ANTHROPIC_API_KEY env var."
                 )
             self.model = model or "claude-sonnet-5"
+            self.workspace_id = workspace_id or os.environ.get("ANTHROPIC_WORKSPACE_ID")
 
         elif self.provider == "gemini":
             self.api_key = api_key or os.environ.get("GOOGLE_API_KEY")
@@ -119,14 +121,18 @@ class LLMClient:
             payload["system"] = system
         payload["messages"] = [{"role": "user", "content": prompt}]
 
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+        }
+        if self.workspace_id:
+            headers["anthropic-workspace-id"] = self.workspace_id
+
         req = urllib.request.Request(
             "https://api.anthropic.com/v1/messages",
             data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": self.api_key,
-                "anthropic-version": "2023-06-01",
-            },
+            headers=headers,
         )
 
         try:

@@ -159,10 +159,13 @@ def animate_from_prompt(
     provider: str = "claude",
     api_key: str = None,
     model: str = None,
+    workspace_id: str = None,
 ):
     from . import llm_client
 
-    client = llm_client.LLMClient(provider=provider, api_key=api_key, model=model)
+    client = llm_client.LLMClient(
+        provider=provider, api_key=api_key, model=model, workspace_id=workspace_id,
+    )
     text = client.chat(prompt, system=CAMERA_PARSE_SYSTEM)
     text = llm_client._extract_json(text)
     spec = json.loads(text)
