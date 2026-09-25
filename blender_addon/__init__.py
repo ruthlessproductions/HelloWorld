@@ -1,15 +1,16 @@
 """AI Scene Generator — Blender addon that generates 3D scenes from text prompts.
 
 Pipeline: LLM (Claude) → World Model → Procedural Materials → Blender Scene
+Includes camera animation presets/LLM and reference video export.
 """
 
 bl_info = {
     "name": "AI Scene Generator",
     "author": "Render3D Pipeline",
-    "version": (1, 0, 0),
+    "version": (2, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > Sidebar > AI Scene",
-    "description": "Generate 3D scenes from text using LLM, world model, and procedural materials",
+    "description": "Generate 3D scenes, camera animations, and reference videos from text",
     "category": "3D View",
 }
 
@@ -22,8 +23,12 @@ from bpy.props import (
     StringProperty,
 )
 
-from . import llm_client, scene_builder, world_model
+from . import camera_animation, llm_client, scene_builder, video_export, world_model
 
+
+# ---------------------------------------------------------------------------
+# Preferences
+# ---------------------------------------------------------------------------
 
 class AIScenePreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
@@ -50,7 +55,12 @@ class AIScenePreferences(bpy.types.AddonPreferences):
         layout.prop(self, "model")
 
 
+# ---------------------------------------------------------------------------
+# Scene properties
+# ---------------------------------------------------------------------------
+
 class AISceneProperties(bpy.types.PropertyGroup):
+    # -- Scene generation --
     prompt: StringProperty(
         name="Prompt",
         description="Describe the scene you want to generate",
@@ -95,6 +105,93 @@ class AISceneProperties(bpy.types.PropertyGroup):
     status: StringProperty(name="Status", default="Ready")
     is_running: BoolProperty(name="Running", default=False)
 
+    # -- Camera animation --
+    cam_prompt: StringProperty(
+        name="Camera Move",
+        description="Describe the camera motion (or use a preset below)",
+        default="slow orbit rising from ground level",
+    )
+
+    cam_preset: EnumProperty(
+        name="Preset",
+        items=[
+            ("CUSTOM", "Custom (LLM)", "Describe camera move in text"),
+            ("turntable", "Turntable", "360-degree orbit"),
+            ("slow_zoom", "Slow Zoom", "Cinematic push-in"),
+            ("dramatic_reveal", "Dramatic Reveal", "Low-to-high crane"),
+            ("orbit_rise", "Orbit Rise", "Orbit while rising"),
+            ("vertigo", "Vertigo", "Dolly zoom effect"),
+            ("showcase_loop", "Showcase Loop", "Speed-ramped dynamic loop"),
+            ("fly_over", "Fly Over", "Arc over the scene"),
+            ("pull_back", "Pull Back", "Reveal pull-out"),
+        ],
+        default="turntable",
+    )
+
+    cam_duration: FloatProperty(
+        name="Duration (s)",
+        description="Animation duration in seconds",
+        default=5.0,
+        min=1.0,
+        max=30.0,
+    )
+
+    cam_fps: IntProperty(
+        name="FPS",
+        default=24,
+        min=12,
+        max=60,
+    )
+
+    # -- Video export --
+    video_quality: EnumProperty(
+        name="Quality",
+        items=[
+            ("preview", "Preview (50%)", "Fast, low-res reference"),
+            ("draft", "Draft (75%)", "Medium quality"),
+            ("final", "Final (100%)", "Full resolution"),
+        ],
+        default="preview",
+    )
+
+    video_format: EnumProperty(
+        name="Format",
+        items=[
+            ("mp4", "MP4", "H.264 compressed video"),
+            ("mov", "MOV (ProRes)", "ProRes 4444 with alpha"),
+        ],
+        default="mp4",
+    )
+
+    video_transparent: BoolProperty(
+        name="Transparent Background",
+        description="Render with transparent background (MOV only)",
+        default=False,
+    )
+
+    video_blockout: BoolProperty(
+        name="Blockout Mode",
+        description="Replace materials with flat grey for reference render",
+        default=False,
+    )
+
+    video_use_viewport: BoolProperty(
+        name="Viewport Render",
+        description="Use fast viewport render instead of full render",
+        default=True,
+    )
+
+    video_output: StringProperty(
+        name="Output Dir",
+        description="Output directory for rendered video",
+        default="//render_output",
+        subtype="DIR_PATH",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scene generation operators
+# ---------------------------------------------------------------------------
 
 class AISCENE_OT_generate(bpy.types.Operator):
     bl_idname = "aiscene.generate"
@@ -138,10 +235,8 @@ class AISCENE_OT_generate(bpy.types.Operator):
                 add_ground=props.add_ground,
                 texture_size=props.texture_size,
             )
-
             scene_builder.setup_lighting(scene_data.get("lights", []), use_hdri=props.use_hdri)
             scene_builder.setup_camera(scene_data.get("camera", {}))
-
             context.scene.render.engine = props.render_engine
 
         except Exception as e:
@@ -170,43 +265,19 @@ class AISCENE_OT_quick_generate(bpy.types.Operator):
             "name": "test_scene",
             "objects": [
                 {
-                    "name": "tower_base",
-                    "primitive": "cylinder",
-                    "position": [0, 0, 2.5],
-                    "rotation": [0, 0, 0],
-                    "scale": [1.5, 1.5, 5],
-                    "material": {
-                        "color": [0.55, 0.55, 0.5],
-                        "roughness": 0.85,
-                        "metallic": 0.0,
-                        "texture_prompt": "weathered stone wall",
-                    },
+                    "name": "tower_base", "primitive": "cylinder",
+                    "position": [0, 0, 2.5], "rotation": [0, 0, 0], "scale": [1.5, 1.5, 5],
+                    "material": {"color": [0.55, 0.55, 0.5], "roughness": 0.85, "texture_prompt": "weathered stone wall"},
                 },
                 {
-                    "name": "tower_roof",
-                    "primitive": "cone",
-                    "position": [0, 0, 6],
-                    "rotation": [0, 0, 0],
-                    "scale": [2, 2, 2.5],
-                    "material": {
-                        "color": [0.45, 0.15, 0.1],
-                        "roughness": 0.7,
-                        "metallic": 0.0,
-                        "texture_prompt": "clay roof tiles",
-                    },
+                    "name": "tower_roof", "primitive": "cone",
+                    "position": [0, 0, 6], "rotation": [0, 0, 0], "scale": [2, 2, 2.5],
+                    "material": {"color": [0.45, 0.15, 0.1], "roughness": 0.7, "texture_prompt": "clay roof tiles"},
                 },
                 {
-                    "name": "hill",
-                    "primitive": "sphere",
-                    "position": [0, 0, -1],
-                    "rotation": [0, 0, 0],
-                    "scale": [8, 8, 3],
-                    "material": {
-                        "color": [0.2, 0.5, 0.15],
-                        "roughness": 0.95,
-                        "metallic": 0.0,
-                        "texture_prompt": "grassy hillside",
-                    },
+                    "name": "hill", "primitive": "sphere",
+                    "position": [0, 0, -1], "rotation": [0, 0, 0], "scale": [8, 8, 3],
+                    "material": {"color": [0.2, 0.5, 0.15], "roughness": 0.95, "texture_prompt": "grassy hillside"},
                 },
             ],
             "lights": [
@@ -232,9 +303,148 @@ class AISCENE_OT_quick_generate(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class AISCENE_PT_main_panel(bpy.types.Panel):
-    bl_label = "AI Scene Generator"
-    bl_idname = "AISCENE_PT_main_panel"
+# ---------------------------------------------------------------------------
+# Camera animation operators
+# ---------------------------------------------------------------------------
+
+class AISCENE_OT_animate_camera(bpy.types.Operator):
+    bl_idname = "aiscene.animate_camera"
+    bl_label = "Animate Camera"
+    bl_description = "Create a keyframed camera animation"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        props = context.scene.ai_scene
+        prefs = context.preferences.addons[__package__].preferences
+
+        target = self._find_scene_center(context)
+
+        if props.cam_preset == "CUSTOM":
+            props.status = "Generating camera move with LLM..."
+            try:
+                camera_animation.animate_from_prompt(
+                    props.cam_prompt,
+                    api_key=prefs.api_key or None,
+                    model=prefs.model,
+                )
+                props.status = "Camera animation created (LLM)"
+            except Exception as e:
+                props.status = f"Camera error: {e}"
+                self.report({"ERROR"}, str(e))
+                return {"CANCELLED"}
+        else:
+            try:
+                camera_animation.animate_preset(
+                    props.cam_preset,
+                    target=target,
+                    fps=props.cam_fps,
+                )
+                props.status = f"Camera: {props.cam_preset} ({props.cam_duration}s)"
+            except Exception as e:
+                props.status = f"Camera error: {e}"
+                self.report({"ERROR"}, str(e))
+                return {"CANCELLED"}
+
+        self.report({"INFO"}, "Camera animation created")
+        return {"FINISHED"}
+
+    def _find_scene_center(self, context) -> tuple[float, float, float]:
+        mesh_objects = [o for o in context.scene.objects if o.type == "MESH" and o.name != "Ground"]
+        if not mesh_objects:
+            return (0, 0, 1.5)
+
+        avg = [0.0, 0.0, 0.0]
+        for obj in mesh_objects:
+            avg[0] += obj.location.x
+            avg[1] += obj.location.y
+            avg[2] += obj.location.z
+        n = len(mesh_objects)
+        return (avg[0] / n, avg[1] / n, avg[2] / n)
+
+
+class AISCENE_OT_preview_camera(bpy.types.Operator):
+    bl_idname = "aiscene.preview_camera"
+    bl_label = "Preview"
+    bl_description = "Play the camera animation in the viewport"
+
+    def execute(self, context):
+        context.scene.frame_set(context.scene.frame_start)
+        bpy.ops.screen.animation_play()
+        return {"FINISHED"}
+
+
+# ---------------------------------------------------------------------------
+# Video export operators
+# ---------------------------------------------------------------------------
+
+class AISCENE_OT_export_video(bpy.types.Operator):
+    bl_idname = "aiscene.export_video"
+    bl_label = "Export Reference Video"
+    bl_description = "Render the scene as a reference video clip"
+
+    def execute(self, context):
+        props = context.scene.ai_scene
+        props.status = "Rendering reference video..."
+
+        original_mats = None
+        if props.video_blockout:
+            original_mats = video_export.setup_blockout_materials()
+
+        try:
+            exporter = video_export.VideoExporter(
+                output_dir=props.video_output,
+                resolution=(context.scene.render.resolution_x, context.scene.render.resolution_y),
+                fps=props.cam_fps,
+            )
+
+            output_path = exporter.export_reference(
+                quality=props.video_quality,
+                format=props.video_format,
+                use_viewport=props.video_use_viewport,
+                transparent=props.video_transparent,
+            )
+
+            props.status = f"Video exported: {output_path}"
+            self.report({"INFO"}, f"Reference video: {output_path}")
+
+        except Exception as e:
+            props.status = f"Export error: {e}"
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+
+        finally:
+            if original_mats is not None:
+                video_export.restore_materials(original_mats)
+
+        return {"FINISHED"}
+
+
+class AISCENE_OT_snapshot(bpy.types.Operator):
+    bl_idname = "aiscene.snapshot"
+    bl_label = "Snapshot Current Frame"
+    bl_description = "Render a single frame at current position"
+
+    def execute(self, context):
+        props = context.scene.ai_scene
+
+        exporter = video_export.VideoExporter(
+            output_dir=props.video_output,
+            resolution=(context.scene.render.resolution_x, context.scene.render.resolution_y),
+        )
+
+        path = exporter.export_single_frame(quality=props.video_quality)
+        props.status = f"Snapshot: {path}"
+        self.report({"INFO"}, f"Saved: {path}")
+        return {"FINISHED"}
+
+
+# ---------------------------------------------------------------------------
+# UI Panels
+# ---------------------------------------------------------------------------
+
+class AISCENE_PT_scene_panel(bpy.types.Panel):
+    bl_label = "Scene Builder"
+    bl_idname = "AISCENE_PT_scene_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "AI Scene"
@@ -263,17 +473,99 @@ class AISCENE_PT_main_panel(bpy.types.Panel):
 
         layout.operator("aiscene.quick_generate", icon="MESH_MONKEY")
 
-        if props.status:
-            box = layout.box()
-            box.label(text=props.status, icon="INFO")
 
+class AISCENE_PT_camera_panel(bpy.types.Panel):
+    bl_label = "Camera Animation"
+    bl_idname = "AISCENE_PT_camera_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "AI Scene"
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.ai_scene
+
+        layout.prop(props, "cam_preset")
+
+        if props.cam_preset == "CUSTOM":
+            layout.label(text="Describe the camera move:")
+            layout.prop(props, "cam_prompt", text="")
+
+        row = layout.row(align=True)
+        row.prop(props, "cam_duration")
+        row.prop(props, "cam_fps")
+
+        layout.separator()
+
+        row = layout.row(align=True)
+        row.scale_y = 1.4
+        row.operator("aiscene.animate_camera", icon="ANIM")
+
+        layout.operator("aiscene.preview_camera", icon="PLAY")
+
+
+class AISCENE_PT_video_panel(bpy.types.Panel):
+    bl_label = "Video Export"
+    bl_idname = "AISCENE_PT_video_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "AI Scene"
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.ai_scene
+
+        box = layout.box()
+        box.label(text="Render Settings", icon="RENDER_ANIMATION")
+        box.prop(props, "video_quality")
+        box.prop(props, "video_format")
+        box.prop(props, "video_use_viewport")
+        box.prop(props, "video_blockout")
+
+        if props.video_format == "mov":
+            box.prop(props, "video_transparent")
+
+        layout.prop(props, "video_output")
+
+        layout.separator()
+
+        row = layout.row(align=True)
+        row.scale_y = 1.4
+        row.operator("aiscene.export_video", icon="RENDER_ANIMATION")
+
+        layout.operator("aiscene.snapshot", icon="RENDER_STILL")
+
+
+class AISCENE_PT_status_panel(bpy.types.Panel):
+    bl_label = "Status"
+    bl_idname = "AISCENE_PT_status_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "AI Scene"
+
+    def draw(self, context):
+        props = context.scene.ai_scene
+        if props.status:
+            self.layout.label(text=props.status, icon="INFO")
+
+
+# ---------------------------------------------------------------------------
+# Registration
+# ---------------------------------------------------------------------------
 
 classes = (
     AIScenePreferences,
     AISceneProperties,
     AISCENE_OT_generate,
     AISCENE_OT_quick_generate,
-    AISCENE_PT_main_panel,
+    AISCENE_OT_animate_camera,
+    AISCENE_OT_preview_camera,
+    AISCENE_OT_export_video,
+    AISCENE_OT_snapshot,
+    AISCENE_PT_scene_panel,
+    AISCENE_PT_camera_panel,
+    AISCENE_PT_video_panel,
+    AISCENE_PT_status_panel,
 )
 
 
