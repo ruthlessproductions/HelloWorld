@@ -57,6 +57,12 @@ class AIScenePreferences(bpy.types.AddonPreferences):
         default="",
     )
 
+    workspace_id: StringProperty(
+        name="Workspace ID",
+        description="Anthropic workspace ID (required for org keys with multiple workspaces)",
+        default="",
+    )
+
     gemini_api_key: StringProperty(
         name="Google API Key",
         description="API key for Gemini (or set GOOGLE_API_KEY env var)",
@@ -93,6 +99,7 @@ class AIScenePreferences(bpy.types.AddonPreferences):
 
         if self.llm_provider == "claude":
             layout.prop(self, "api_key")
+            layout.prop(self, "workspace_id")
             layout.prop(self, "model")
         else:
             layout.prop(self, "gemini_api_key")
@@ -255,10 +262,14 @@ class AISCENE_OT_generate(bpy.types.Operator):
             if provider == "claude":
                 api_key = prefs.api_key or None
                 model = prefs.model
+                workspace_id = prefs.workspace_id or None
             else:
                 api_key = prefs.gemini_api_key or None
                 model = prefs.gemini_model
-            client = llm_client.LLMClient(provider=provider, api_key=api_key, model=model)
+                workspace_id = None
+            client = llm_client.LLMClient(
+                provider=provider, api_key=api_key, model=model, workspace_id=workspace_id,
+            )
             scene_data = client.parse_scene(props.prompt)
         except Exception as e:
             props.status = f"LLM error: {e}"
@@ -376,14 +387,17 @@ class AISCENE_OT_animate_camera(bpy.types.Operator):
                 if provider == "claude":
                     api_key = prefs.api_key or None
                     model = prefs.model
+                    workspace_id = prefs.workspace_id or None
                 else:
                     api_key = prefs.gemini_api_key or None
                     model = prefs.gemini_model
+                    workspace_id = None
                 camera_animation.animate_from_prompt(
                     props.cam_prompt,
                     provider=provider,
                     api_key=api_key,
                     model=model,
+                    workspace_id=workspace_id,
                 )
                 props.status = "Camera animation created (LLM)"
             except Exception as e:
