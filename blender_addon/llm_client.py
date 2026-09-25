@@ -152,10 +152,11 @@ class LLMClient:
                 msg = msg.get("message", str(msg))
             raise RuntimeError(f"Claude API error: {msg}")
 
-        try:
-            return body["content"][0]["text"].strip()
-        except (KeyError, IndexError, TypeError):
-            raise RuntimeError(f"Unexpected Claude response format: {json.dumps(body)[:300]}")
+        for block in body.get("content", []):
+            if block.get("type") == "text":
+                return block["text"].strip()
+
+        raise RuntimeError(f"No text in Claude response: {json.dumps(body)[:300]}")
 
     def _chat_gemini(self, prompt: str, system: str) -> str:
         url = (
