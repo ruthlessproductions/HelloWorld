@@ -7,7 +7,7 @@ Includes camera animation presets/LLM and reference video export.
 bl_info = {
     "name": "AI Scene Generator",
     "author": "Render3D Pipeline",
-    "version": (2, 0, 0),
+    "version": (2, 1, 0),
     "blender": (4, 0, 0),
     "location": "View3D > Sidebar > AI Scene",
     "description": "Generate 3D scenes, camera animations, and reference videos from text",
@@ -15,10 +15,19 @@ bl_info = {
 }
 
 _reload = "bpy" in locals()
-from . import camera_animation, llm_client, object_animation, scene_builder, video_export, world_model
+from . import (
+    camera_animation,
+    code_generator,
+    llm_client,
+    object_animation,
+    scene_builder,
+    video_export,
+    world_model,
+)
 if _reload:
     import importlib
     importlib.reload(llm_client)
+    importlib.reload(code_generator)
     importlib.reload(scene_builder)
     importlib.reload(world_model)
     importlib.reload(camera_animation)
@@ -76,6 +85,7 @@ class AIScenePreferences(bpy.types.AddonPreferences):
         items=[
             ("claude-sonnet-5", "Claude Sonnet 5", "Fast, cost-effective"),
             ("claude-opus-5", "Claude Opus 5", "Most capable"),
+            ("claude-opus-5-5", "Claude Opus 5.5", "Latest, most capable"),
             ("claude-haiku-4-5", "Claude Haiku 4.5", "Fastest, lightweight tasks"),
         ],
         default="claude-sonnet-5",
@@ -113,6 +123,17 @@ class AIScenePreferences(bpy.types.AddonPreferences):
 
 class AISceneProperties(bpy.types.PropertyGroup):
     # -- Scene generation --
+    gen_mode: EnumProperty(
+        name="Mode",
+        items=[
+            ("CODE", "Script", "LLM writes a Blender Python script you review, then run"),
+            ("PRIMITIVES", "Primitives", "LLM places basic shapes (cube, sphere, cylinder...)"),
+        ],
+        default="CODE",
+    )
+
+    script_error: StringProperty(name="Script Error", default="")
+
     prompt: StringProperty(
         name="Prompt",
         description="Describe the scene you want to generate",
@@ -251,6 +272,113 @@ class AISceneProperties(bpy.types.PropertyGroup):
 # ---------------------------------------------------------------------------
 # Scene generation operators
 # ---------------------------------------------------------------------------
+
+def _make_client(context) -> llm_client.LLMClient:
+    prefs = context.preferences.addons[__package__].preferences
+    if prefs.llm_provider == "claude":
+        return llm_client.LLMClient(
+            provider="claude",
+            api_key=prefs.api_key or None,
+            model=prefs.model,
+            workspace_id=prefs.workspace_id or None,
+        )
+    return llm_client.LLMClient(
+        provider="gemini", api_key=prefs.gemini_api_key or None, model=prefs.gemini_model,
+    )
+
+
+def _script_ready_status(context, text, risky: list[str]) -> str:
+    where = "Text Editor" if code_generator.show_in_text_editors(context, text) else (
+        f"a Text Editor (open '{code_generator.TEXT_NAME}')"
+    )
+    status = f"Script ready ({len(text.lines)} lines). Review it in {where}, then Run Script."
+    if risky:
+        status += f" WARNING: script uses {', '.join(risky)}; check it carefully before running."
+    return status
+
+
+class AISCENE_OT_generate_script(bpy.types.Operator):
+    bl_idname = "aiscene.generate_script"
+    bl_label = "Generate Script"
+    bl_description = "Ask the LLM to write a Blender Python script for the prompt (does not run it)"
+
+    def execute(self, context):
+        props = context.scene.ai_scene
+        try:
+            code = code_generator.generate_script(_make_client(context), props.prompt)
+        except Exception as e:
+            props.status = f"LLM error: {e}"
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+
+        text = code_generator.store_script(code)
+        props.script_error = ""
+        risky = code_generator.find_risky_code(code)
+        props.status = _script_ready_status(context, text, risky)
+        self.report({"WARNING"} if risky else {"INFO"}, props.status)
+        return {"FINISHED"}
+
+
+class AISCENE_OT_run_script(bpy.types.Operator):
+    bl_idname = "aiscene.run_script"
+    bl_label = "Run Script"
+    bl_description = "Run the generated script (including any edits you made) to build the scene"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return code_generator.TEXT_NAME in bpy.data.texts
+
+    def execute(self, context):
+        props = context.scene.ai_scene
+        code = bpy.data.texts[code_generator.TEXT_NAME].as_string()
+
+        if props.clear_scene:
+            scene_builder.clear_scene()
+
+        before = set(bpy.data.objects)
+        try:
+            code_generator.run_script(code)
+        except RuntimeError as e:
+            props.script_error = str(e)
+            props.status = "Script failed. Use Fix Error, or edit the script and run again."
+            self.report({"ERROR"}, str(e))
+            return {"FINISHED"}
+
+        context.scene.render.engine = props.render_engine
+        props.script_error = ""
+        created = len(set(bpy.data.objects) - before)
+        props.status = f"Done: script created {created} objects"
+        self.report({"INFO"}, props.status)
+        return {"FINISHED"}
+
+
+class AISCENE_OT_fix_script(bpy.types.Operator):
+    bl_idname = "aiscene.fix_script"
+    bl_label = "Fix Error"
+    bl_description = "Send the script and its error to the LLM and replace the script with a corrected version"
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.scene.ai_scene.script_error) and code_generator.TEXT_NAME in bpy.data.texts
+
+    def execute(self, context):
+        props = context.scene.ai_scene
+        code = bpy.data.texts[code_generator.TEXT_NAME].as_string()
+        try:
+            fixed = code_generator.fix_script(_make_client(context), props.prompt, code, props.script_error)
+        except Exception as e:
+            props.status = f"LLM error: {e}"
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+
+        text = code_generator.store_script(fixed)
+        props.script_error = ""
+        risky = code_generator.find_risky_code(fixed)
+        props.status = "Fixed. " + _script_ready_status(context, text, risky)
+        self.report({"WARNING"} if risky else {"INFO"}, props.status)
+        return {"FINISHED"}
+
 
 class AISCENE_OT_generate(bpy.types.Operator):
     bl_idname = "aiscene.generate"
@@ -574,18 +702,36 @@ class AISCENE_PT_scene_panel(bpy.types.Panel):
         layout = self.layout
         props = context.scene.ai_scene
 
+        layout.row().prop(props, "gen_mode", expand=True)
+
         layout.label(text="Scene Description:")
         layout.prop(props, "prompt", text="")
 
         box = layout.box()
         box.label(text="Settings", icon="PREFERENCES")
         box.prop(props, "clear_scene")
-        box.prop(props, "add_ground")
         box.prop(props, "render_engine")
-        box.prop(props, "texture_size")
-        box.prop(props, "use_hdri")
+        if props.gen_mode == "PRIMITIVES":
+            box.prop(props, "add_ground")
+            box.prop(props, "texture_size")
+            box.prop(props, "use_hdri")
 
         layout.separator()
+
+        if props.gen_mode == "CODE":
+            row = layout.row(align=True)
+            row.scale_y = 1.5
+            row.operator("aiscene.generate_script", icon="SCRIPT")
+
+            row = layout.row(align=True)
+            row.scale_y = 1.3
+            row.operator("aiscene.run_script", icon="PLAY")
+            if props.script_error:
+                row.operator("aiscene.fix_script", icon="TOOL_SETTINGS")
+                err = layout.box()
+                for line in props.script_error.splitlines()[-3:]:
+                    err.label(text=line[:120], icon="ERROR")
+            return
 
         row = layout.row(align=True)
         row.scale_y = 1.5
@@ -709,6 +855,9 @@ classes = (
     AISceneProperties,
     AISCENE_OT_generate,
     AISCENE_OT_quick_generate,
+    AISCENE_OT_generate_script,
+    AISCENE_OT_run_script,
+    AISCENE_OT_fix_script,
     AISCENE_OT_animate_camera,
     AISCENE_OT_animate_objects,
     AISCENE_OT_preview_camera,
