@@ -31,7 +31,13 @@ Install directly into Blender for a native panel in the 3D Viewport sidebar.
 5. Find the panel: View3D → Sidebar (N) → "AI Scene"
 ```
 
-**Use:**
+**Script mode (default):**
+- Type a scene description and click "Generate Script": the LLM writes a Blender Python script into the `AI_Scene_Script` text block
+- Review (or edit) it in a Text Editor area, then click "Run Script" to build the scene
+- If the script errors, click "Fix Error" to send the error back to the LLM for a corrected script
+- The script runs with full Python access, so read it before running; the panel warns about OS, file, network, or `bpy.ops.wm` usage
+
+**Primitives mode:**
 - Type a scene description in the prompt field
 - Adjust settings (render engine, texture size, HDRI)
 - Click "Generate Scene"

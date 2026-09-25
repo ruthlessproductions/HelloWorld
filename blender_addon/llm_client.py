@@ -105,18 +105,18 @@ class LLMClient:
         else:
             raise ValueError(f"Unknown provider: {provider}. Use 'claude' or 'gemini'.")
 
-    def chat(self, prompt: str, system: str = "") -> str:
+    def chat(self, prompt: str, system: str = "", max_tokens: int = 16000, timeout: int = 120) -> str:
         """Send a prompt and return the text response."""
         if self.provider == "claude":
-            return self._chat_claude(prompt, system)
-        return self._chat_gemini(prompt, system)
+            return self._chat_claude(prompt, system, max_tokens, timeout)
+        return self._chat_gemini(prompt, system, max_tokens, timeout)
 
     def parse_scene(self, prompt: str) -> dict:
         text = self.chat(prompt, system=SCENE_PARSE_SYSTEM)
         return json.loads(_extract_json(text))
 
-    def _chat_claude(self, prompt: str, system: str) -> str:
-        payload = {"model": self.model, "max_tokens": 16000}
+    def _chat_claude(self, prompt: str, system: str, max_tokens: int, timeout: int) -> str:
+        payload = {"model": self.model, "max_tokens": max_tokens}
         if system:
             payload["system"] = system
         payload["messages"] = [{"role": "user", "content": prompt}]
@@ -136,7 +136,7 @@ class LLMClient:
         )
 
         try:
-            with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=60) as resp:
+            with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8", errors="replace")
@@ -152,20 +152,26 @@ class LLMClient:
                 msg = msg.get("message", str(msg))
             raise RuntimeError(f"Claude API error: {msg}")
 
+        stop_reason = body.get("stop_reason")
+        if stop_reason == "max_tokens":
+            raise RuntimeError("Claude response was cut off (hit max_tokens). Try a simpler prompt.")
+        if stop_reason == "refusal":
+            raise RuntimeError("Claude declined this request. Try rephrasing the prompt.")
+
         for block in body.get("content", []):
             if block.get("type") == "text":
                 return block["text"].strip()
 
         raise RuntimeError(f"No text in Claude response: {json.dumps(body)[:300]}")
 
-    def _chat_gemini(self, prompt: str, system: str) -> str:
+    def _chat_gemini(self, prompt: str, system: str, max_tokens: int, timeout: int) -> str:
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}"
             f":generateContent?key={self.api_key}"
         )
 
         contents = [{"role": "user", "parts": [{"text": prompt}]}]
-        payload = {"contents": contents}
+        payload = {"contents": contents, "generationConfig": {"maxOutputTokens": max_tokens}}
 
         if system:
             payload["systemInstruction"] = {"parts": [{"text": system}]}
@@ -177,7 +183,7 @@ class LLMClient:
         )
 
         try:
-            with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=60) as resp:
+            with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8", errors="replace")
@@ -192,6 +198,9 @@ class LLMClient:
             if isinstance(msg, dict):
                 msg = msg.get("message", str(msg))
             raise RuntimeError(f"Gemini API error: {msg}")
+
+        if body.get("candidates") and body["candidates"][0].get("finishReason") == "MAX_TOKENS":
+            raise RuntimeError("Gemini response was cut off (hit max tokens). Try a simpler prompt.")
 
         try:
             return body["candidates"][0]["content"]["parts"][0]["text"].strip()

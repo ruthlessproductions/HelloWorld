@@ -20,6 +20,9 @@ def clear_scene():
     for block in bpy.data.meshes:
         if not block.users:
             bpy.data.meshes.remove(block)
+    for block in bpy.data.curves:
+        if not block.users:
+            bpy.data.curves.remove(block)
     for block in bpy.data.materials:
         if not block.users:
             bpy.data.materials.remove(block)
