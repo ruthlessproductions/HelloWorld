@@ -37,6 +37,19 @@ Install directly into Blender for a native panel in the 3D Viewport sidebar.
 - Click "Generate Scene"
 - Or click "Quick Generate" for a test scene without an API call
 
+**Camera Animation:**
+- Select a motion preset (orbit, dolly, crane, flythrough, turntable, push-in, pull-out, dutch roll)
+- Or describe a custom camera move in natural language (uses Claude API)
+- Adjust duration, easing, and speed ramping
+- Click "Animate Camera" to generate keyframes with Bezier interpolation
+
+**Video Reference Export:**
+- Choose quality tier: preview (50%), draft (75%), or final (100%)
+- Select output format: MP4 (H.264) or MOV (ProRes 4444 with alpha)
+- Enable blockout mode for flat-grey reference renders
+- Use viewport render (fast) or full Cycles/EEVEE render
+- Requires ffmpeg for video encoding
+
 ### 2. MCP Script (Remote Control)
 
 Send scenes to a running Blender instance via the blender-mcp WebSocket addon.
@@ -115,6 +128,30 @@ The Blender addon generates procedural shader node trees based on texture_prompt
 | glass, crystal | Full transmission + IOR 1.45 |
 | tile, roof, ceramic | Checker pattern + bump |
 
+## Camera Motion Types
+
+| Motion | Description |
+|--------|------------|
+| orbit | Circle around scene center at fixed height |
+| dolly | Smooth forward/backward track along camera axis |
+| crane | Vertical sweep (low to high or reverse) |
+| flythrough | S-curve path through the scene |
+| turntable | 360-degree rotation at fixed distance |
+| push_in | Slow push toward subject with slight crane |
+| pull_out | Reverse pull away from subject |
+| dutch_roll | Subtle roll rotation for dramatic effect |
+
+Custom moves can be described in natural language (e.g. "slow orbit rising from ground level to bird's eye").
+
+## Video Export Formats
+
+| Format | Codec | Use Case |
+|--------|-------|----------|
+| MP4 | H.264 (libx264) | General reference playback |
+| MOV | ProRes 4444 | Alpha-channel compositing |
+
+Quality tiers: preview (50% res, 16 Cycles samples), draft (75%, 64 samples), final (100%, 128 samples).
+
 ## Project Structure
 
 ```
@@ -125,11 +162,13 @@ render3d/              # Standalone Python pipeline
 ├── rendering/         # trimesh-based renderer (GLB/OBJ/preview)
 └── pipeline.py        # Orchestrator
 
-blender_addon/         # Blender 4.0+ addon
-├── __init__.py        # Addon registration, operators, UI panel
-├── llm_client.py      # Claude API via urllib (zero external deps)
-├── world_model.py     # Spatial constraints (stdlib math only)
-└── scene_builder.py   # bpy scene construction + procedural shaders
+blender_addon/             # Blender 4.0+ addon
+├── __init__.py            # Addon registration, operators, UI panels
+├── llm_client.py          # Claude API via urllib (zero external deps)
+├── world_model.py         # Spatial constraints (stdlib math only)
+├── scene_builder.py       # bpy scene construction + procedural shaders
+├── camera_animation.py    # 8 motion presets + LLM-driven custom moves
+└── video_export.py        # Reference video export with ffmpeg encoding
 
 scripts/               # MCP integration
 └── generate_scene.py  # Send generated scenes to Blender via WebSocket
