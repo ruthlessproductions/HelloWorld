@@ -1,6 +1,6 @@
 """AI Scene Generator — Blender addon that generates 3D scenes from text prompts.
 
-Pipeline: LLM (Claude) → World Model → Procedural Materials → Blender Scene
+Pipeline: LLM (Claude or Gemini) → World Model → Procedural Materials → Blender Scene
 Includes camera animation presets/LLM and reference video export.
 """
 
@@ -33,6 +33,15 @@ from . import camera_animation, llm_client, scene_builder, video_export, world_m
 class AIScenePreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
+    llm_provider: EnumProperty(
+        name="LLM Provider",
+        items=[
+            ("claude", "Claude (Anthropic)", "Use Anthropic's Claude API"),
+            ("gemini", "Gemini (Google)", "Use Google's Gemini API"),
+        ],
+        default="claude",
+    )
+
     api_key: StringProperty(
         name="Anthropic API Key",
         description="API key for Claude (or set ANTHROPIC_API_KEY env var)",
@@ -40,8 +49,15 @@ class AIScenePreferences(bpy.types.AddonPreferences):
         default="",
     )
 
+    gemini_api_key: StringProperty(
+        name="Google API Key",
+        description="API key for Gemini (or set GOOGLE_API_KEY env var)",
+        subtype="PASSWORD",
+        default="",
+    )
+
     model: EnumProperty(
-        name="Model",
+        name="Claude Model",
         items=[
             ("claude-sonnet-4-20250514", "Claude Sonnet", "Fast, cost-effective"),
             ("claude-opus-4-20250514", "Claude Opus", "Most capable"),
@@ -49,10 +65,25 @@ class AIScenePreferences(bpy.types.AddonPreferences):
         default="claude-sonnet-4-20250514",
     )
 
+    gemini_model: EnumProperty(
+        name="Gemini Model",
+        items=[
+            ("gemini-2.5-flash", "Gemini 2.5 Flash", "Fast, cost-effective"),
+            ("gemini-2.5-pro", "Gemini 2.5 Pro", "Most capable"),
+        ],
+        default="gemini-2.5-flash",
+    )
+
     def draw(self, context):
         layout = self.layout
-        layout.prop(self, "api_key")
-        layout.prop(self, "model")
+        layout.prop(self, "llm_provider")
+
+        if self.llm_provider == "claude":
+            layout.prop(self, "api_key")
+            layout.prop(self, "model")
+        else:
+            layout.prop(self, "gemini_api_key")
+            layout.prop(self, "gemini_model")
 
 
 # ---------------------------------------------------------------------------
@@ -207,8 +238,14 @@ class AISCENE_OT_generate(bpy.types.Operator):
         props.is_running = True
 
         try:
-            api_key = prefs.api_key or None
-            client = llm_client.ClaudeClient(api_key=api_key, model=prefs.model)
+            provider = prefs.llm_provider
+            if provider == "claude":
+                api_key = prefs.api_key or None
+                model = prefs.model
+            else:
+                api_key = prefs.gemini_api_key or None
+                model = prefs.gemini_model
+            client = llm_client.LLMClient(provider=provider, api_key=api_key, model=model)
             scene_data = client.parse_scene(props.prompt)
         except Exception as e:
             props.status = f"LLM error: {e}"
@@ -322,10 +359,18 @@ class AISCENE_OT_animate_camera(bpy.types.Operator):
         if props.cam_preset == "CUSTOM":
             props.status = "Generating camera move with LLM..."
             try:
+                provider = prefs.llm_provider
+                if provider == "claude":
+                    api_key = prefs.api_key or None
+                    model = prefs.model
+                else:
+                    api_key = prefs.gemini_api_key or None
+                    model = prefs.gemini_model
                 camera_animation.animate_from_prompt(
                     props.cam_prompt,
-                    api_key=prefs.api_key or None,
-                    model=prefs.model,
+                    provider=provider,
+                    api_key=api_key,
+                    model=model,
                 )
                 props.status = "Camera animation created (LLM)"
             except Exception as e:
