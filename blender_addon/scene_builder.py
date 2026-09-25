@@ -541,9 +541,16 @@ def _setup_hdri_world():
 
     sky = nodes.new("ShaderNodeTexSky")
     sky.location = (-300, 300)
-    sky.sky_type = "NISHITA"
-    sky.sun_elevation = math.radians(30)
-    sky.sun_rotation = math.radians(45)
+    valid_sky_types = {"NISHITA", "HOSEK_WILKIE", "PREETHAM"}
+    for preferred in ("NISHITA", "HOSEK_WILKIE", "PREETHAM"):
+        if preferred in {item.identifier for item in sky.bl_rna.properties["sky_type"].enum_items}:
+            sky.sky_type = preferred
+            break
+    if hasattr(sky, "sun_elevation"):
+        sky.sun_elevation = math.radians(30)
+        sky.sun_rotation = math.radians(45)
+    elif hasattr(sky, "sun_direction"):
+        sky.sun_direction = (0.5, 0.5, 0.7)
 
     if bg:
         links.new(sky.outputs["Color"], bg.inputs["Color"])
