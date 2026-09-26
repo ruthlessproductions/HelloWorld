@@ -65,7 +65,9 @@ Then read the PNGs and go through this list before calling it done:
 - **Framing:** the scene camera shows the whole subject with some margin.
 - **Materials:** no pure black or neon surprises; remove every unlinked node the inspector lists.
 
-Previews default to EEVEE. `--engine workbench` is fastest for checking shapes; `--engine cycles` works everywhere, including machines without a GPU. Keep previews small (640 px) to save time and tokens; look at only the views you need.
+Previews default to EEVEE. `--engine workbench` is fastest for checking shapes; it shows each material's viewport color, which the template's `material()` sets (set `mat.diffuse_color` yourself for materials you build another way, or Workbench shows them grey). `--engine cycles` works everywhere and uses the GPU when there is one (Metal, OptiX, CUDA, HIP, oneAPI), falling back to the CPU. Cycles on a GPU often matches EEVEE's speed and handles stone, ambient occlusion and bounce light much better. Keep previews small (640 px) to save time and tokens; look at only the views you need.
+
+`--camera NAME` renders the camera view through a named camera instead of the scene camera, `--aspect H/W` overrides its aspect ratio, and `--frame N` renders that frame of an animation.
 
 ## 4. Revise
 
@@ -109,6 +111,15 @@ camera_animation.animate_preset("turntable", target=(0, 0, 1.0))   # sets frames
 ```
 
 For an existing rigged model, run `inspect_scene.py` to list its bones, then keyframe `pose.bones["name"].rotation_euler` (set `rotation_mode = "XYZ"` first) in a script that opens the user's file.
+
+## Working from a reference photo
+
+When the user gives a photo to model from (or asks for something real, like a landmark):
+
+1. **Gather facts, not just pictures.** Look up the real dimensions and plan (height, footprint, number of bays or floors), and one view the photo doesn't show, such as an aerial or a plan, if web tools are available. A single photo fixes proportions from one side only.
+2. **Put a camera where the photographer stood.** Add a second camera (keep the scene camera for the final shot) at the photo's eye height and direction, and match its field of view. A stitched panorama or very wide photo needs a panoramic camera: `cam.data.type = "PANO"`, `cam.data.panorama_type = "EQUIRECTANGULAR"` (or `"CENTRAL_CYLINDRICAL"`), and `longitude_min/max` and `latitude_min/max` in radians to match the photo's horizontal and vertical span. Panoramic cameras render in Cycles only; `render_preview.py` switches to Cycles for them.
+3. **Compare and refit.** Render that camera at the photo's aspect (`--views camera --camera NAME --aspect H/W`) and compare it with the photo feature by feature: where the horizon falls, and the image height of known levels (floors, terraces, rooflines). When they disagree, fix the model's proportions or the camera position, not the photo camera's lens.
+4. **Then frame the real shot.** Once the match camera agrees with the photo, compose the final shot with the scene camera. It doesn't need to copy the photo.
 
 ## Working on the user's existing .blend
 

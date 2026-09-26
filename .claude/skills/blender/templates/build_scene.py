@@ -61,6 +61,7 @@ def material(name, color, roughness=0.5, metallic=0.0, **inputs):
     bsdf.inputs["Metallic"].default_value = metallic
     for key, value in inputs.items():
         bsdf.inputs[key.replace("_", " ")].default_value = value
+    mat.diffuse_color = (*color[:3], 1.0)    # viewport color: what Workbench previews show
     return mat
 
 
