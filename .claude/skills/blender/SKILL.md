@@ -33,8 +33,14 @@ mkdir -p scenes/pelican && cp "<skill dir>/templates/build_scene.py" scenes/peli
 "$BLENDER" --background --factory-startup --python scenes/pelican/build.py -- --out scenes/pelican
 ```
 
+Get something on screen early, then refine from renders:
+
+1. **Blockout first.** Within the first couple of minutes, write a rough `build()` with the main masses at real scale and roughly in place, plus ground and camera. Build it and render one view (`--views camera --engine workbench`). A build and a Workbench preview usually take seconds, so a wrong guess costs far less than long up-front planning.
+2. **Don't solve the geometry in your head.** Pick plausible numbers and let the previews show what's off. Where parts must meet exactly (feet on pedals, hands on a handle, wheels on the ground), compute the position in the script from the parts it depends on instead of working it out by hand.
+3. **Add detail in a few passes.** Replace stand-ins with real forms part by part, rebuilding and checking between passes (section 3), rather than writing the whole detailed scene before the first run.
+
 Modeling guidance:
-- Model recognizable, well-proportioned forms with real detail, not blocky stand-ins.
+- The finished model has recognizable, well-proportioned forms with real detail; blocky stand-ins belong only in the blockout pass.
 - Pick the technique per part: `tube()` (Bezier curve with bevel) for necks, limbs, frames, handles, cables; `rod()` for straight struts and spokes; `ellipsoid()` for organic masses; `bmesh` for custom shapes; primitives plus `bevel()` for hard-surface parts; Mirror, Array, Screw, Solidify modifiers for symmetry, repetition and lathed shapes.
 - Parts of one object must physically connect: overlap joints slightly. Nothing floats unless the brief says so.
 - Build repeated detail with loops (spokes, fence posts, leaves, windows).
