@@ -11,6 +11,7 @@ Helpers in this skill's directory (`<skill dir>` below):
 - `templates/build_scene.py`: starter build script with tested helpers (materials, curved tubes, rods, ellipsoids, rings, lights, camera, save).
 - `scripts/inspect_scene.py`: object sizes in meters, parts that float or sink below ground, bones, materials with unlinked nodes.
 - `scripts/render_preview.py`: preview PNGs from the scene camera and from framing views, without changing the file.
+- `scripts/render_animation.py`: renders the animation to an MP4 (or PNG frames), without changing the file.
 
 ## 1. Find Blender
 
@@ -84,22 +85,22 @@ For the final still, render through the scene camera at full resolution:
     --blend scenes/pelican/pelican.blend --out scenes/pelican/renders --views camera --res 1920 --samples 64
 ```
 
-For animation, keyframe in the build script, then render video directly from Blender (no ffmpeg needed):
+For animation, keyframe in the build script (set `scene.frame_start`, `frame_end` and `render.fps` there), then render the video with the helper. It writes an H.264 MP4 directly (no ffmpeg needed) and runs Cycles on the GPU:
 
-```python
-scene.frame_start, scene.frame_end = 1, 120
-scene.render.fps = 24
-im = scene.render.image_settings
-if hasattr(im, "media_type"):          # Blender 5.x
-    im.media_type = "VIDEO"
-im.file_format = "FFMPEG"
-scene.render.ffmpeg.format = "MPEG4"
-scene.render.ffmpeg.codec = "H264"
-scene.render.filepath = "//renders/turntable_"   # "//" = relative to the .blend
-bpy.ops.render.render(animation=True)
+```bash
+"$BLENDER" --background --factory-startup --python "<skill dir>/scripts/render_animation.py" -- \
+    --blend scenes/pelican/pelican.blend --out scenes/pelican/renders/shot.mp4 --res 1280 --samples 64
 ```
 
-Render a short, low-resolution test (about 24 frames at 480 px) before the full animation.
+Before the full render:
+- Check the key moments as stills (`render_preview.py --views camera --frame N` for the first frame, each camera key and the last). This catches a subject that leaves the frame or ends up hidden behind scenery.
+- Render a short, low-resolution test clip (`--frames 1-24 --res 480 --samples 16`), and time a few full-quality frames to estimate the whole render. Run long renders in the background.
+
+Animating parts of a model:
+- Give each moving group an Empty at its pivot (wheel axle, crank, hip, knee, neck base) and parent the parts to it without moving them: call `bpy.context.view_layer.update()`, save each part's `matrix_world`, set its `parent`, and restore `matrix_world`. Then keyframe the Empty's rotation.
+- When one motion drives another (legs on pedals, wheel spin from distance traveled), compute the pose for every frame in the script (for example two-bone IK in the leg's plane) and key every frame, instead of hoping sparse keys line up.
+- Set `bpy.context.preferences.edit.keyframe_new_interpolation_type` to `"LINEAR"` before keying every frame and to `"BEZIER"` for sparse eased keys such as a camera move. This sets new keys' interpolation without the F-curve API, which changed in 5.x.
+- For a camera move, key the camera's location and `data.lens` at a few frames and aim it with a Track To constraint at a keyed target Empty.
 
 If this skill sits in the AI Scene Generator repo, its camera presets (turntable, slow_zoom, dramatic_reveal, orbit_rise, vertigo, showcase_loop, fly_over, pull_back) can be reused:
 
