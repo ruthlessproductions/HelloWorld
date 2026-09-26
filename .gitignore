@@ -5,3 +5,7 @@ __pycache__/
 dist/
 build/
 .env
+
+# Blender backups and regenerable scene previews
+*.blend1
+scenes/*/previews/
