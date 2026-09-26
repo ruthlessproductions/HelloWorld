@@ -1,4 +1,7 @@
-"""A movie-scale Velociraptor (Sketchfab model, source/Velo_sketchfab.fbx) with a rig and a run cycle.
+"""A movie-scale Velociraptor with a rig and a run cycle.
+
+Model: "Velociraptor" by Tomas Ibar (https://www.artstation.com/artwork/4XgZd8), CC BY 4.0,
+source/Velo_sketchfab.fbx. See ATTRIBUTION.md for the changes made here.
 
 Run:
   "$BLENDER" --background --factory-startup --python scenes/raptor/build.py -- --out scenes/raptor
