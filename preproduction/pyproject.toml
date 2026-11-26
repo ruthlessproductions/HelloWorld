@@ -16,6 +16,10 @@ dependencies = [
     "opentimelineio>=0.17",
     "gazu>=1.0",
     "pillow>=10.0",
+    # the local web app (helloworld app)
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

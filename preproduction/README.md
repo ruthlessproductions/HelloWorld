@@ -41,6 +41,7 @@ Open Shot Designer  (.osd)          shot list, camera notes, your storyboard dra
 - Docker Desktop, for Kitsu and AYON.
 - Blender 4.2 or newer (tested with 5.1).
 - git, to build the AYON images.
+- Node.js (npm), to build Open Shot Designer for the app.
 
 ## Install
 
@@ -52,6 +53,36 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
 ```
+
+## The app
+
+Everything below can be run from one local web page. Double-click `HelloWorld.command` in Finder, or run:
+
+```bash
+helloworld app          # opens http://localhost:8765
+```
+
+The first time, open **Setup** in the sidebar. Each step has a button: build the AYON images, start Kitsu and AYON, build Open Shot Designer, and install the Blender add-on.
+
+After that:
+
+- **Open Shot Designer** runs inside the app. To open a HelloWorld plan there, use **Cloud → Nextcloud → Connect** (the address and password are already filled in), then **Open**. Saving it back with the Nextcloud button on its card updates the project in HelloWorld. You can also drop a `.osd` file onto the app.
+- Each **project page** walks the pipeline: **Push** to Kitsu, **Sync** to AYON, **Build the cut**, **Pull** previews from Kitsu, **Attach renders**, then **Open in Blender**. Every shot shows its boards, its tasks in Kitsu, and which versions (board, previs, final) the cut has.
+- **Kitsu** and **AYON** also open inside the app. Their logins are on the Setup page.
+- The **Activity** bar at the bottom shows the log of everything the app runs.
+
+Projects live in `~/Documents/HelloWorld Projects/<name>/`:
+
+| Path | What it is |
+| --- | --- |
+| `plan.osd` | The plan. Older versions are kept in `history/`. |
+| `cut/cut.otio` | The cut. Media from Kitsu sits next to it in `cut/cut_media/`. |
+| `renders/` | Put finished renders here, named after their shot (`SC001_SH002_v001.mov`). |
+| `edit.blend` | The Blender edit. **Rebuild from cut** moves the old one to `history/`. |
+
+Options: `--port`, `--projects <folder>` (or the `HELLOWORLD_PROJECTS` variable), and `--no-browser`. The app only answers on localhost. Its WebDAV password for Open Shot Designer is in `.app/settings.json`, which git ignores.
+
+The sections below do the same steps from the command line.
 
 ## 1. Start the tracking stack (Kitsu + AYON)
 
