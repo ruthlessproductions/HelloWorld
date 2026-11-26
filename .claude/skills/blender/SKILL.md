@@ -11,6 +11,7 @@ Helpers in this skill's directory (`<skill dir>` below):
 - `templates/build_scene.py`: starter build script with tested helpers (materials, curved tubes, rods, ellipsoids, rings, lights, camera, save).
 - `scripts/inspect_scene.py`: object sizes in meters, parts that float or sink below ground, bones, materials with unlinked nodes.
 - `scripts/render_preview.py`: preview PNGs from the scene camera and from framing views, without changing the file.
+- `scripts/render_animation.py`: renders the animation to an MP4 (or PNG frames), without changing the file.
 
 ## 1. Find Blender
 
@@ -33,8 +34,14 @@ mkdir -p scenes/pelican && cp "<skill dir>/templates/build_scene.py" scenes/peli
 "$BLENDER" --background --factory-startup --python scenes/pelican/build.py -- --out scenes/pelican
 ```
 
+Get something on screen early, then refine from renders:
+
+1. **Blockout first.** Within the first couple of minutes, write a rough `build()` with the main masses at real scale and roughly in place, plus ground and camera. Build it and render one view (`--views camera --engine workbench`). A build and a Workbench preview usually take seconds, so a wrong guess costs far less than long up-front planning.
+2. **Don't solve the geometry in your head.** Pick plausible numbers and let the previews show what's off. Where parts must meet exactly (feet on pedals, hands on a handle, wheels on the ground), compute the position in the script from the parts it depends on instead of working it out by hand.
+3. **Add detail in a few passes.** Replace stand-ins with real forms part by part, rebuilding and checking between passes (section 3), rather than writing the whole detailed scene before the first run.
+
 Modeling guidance:
-- Model recognizable, well-proportioned forms with real detail, not blocky stand-ins.
+- The finished model has recognizable, well-proportioned forms with real detail; blocky stand-ins belong only in the blockout pass.
 - Pick the technique per part: `tube()` (Bezier curve with bevel) for necks, limbs, frames, handles, cables; `rod()` for straight struts and spokes; `ellipsoid()` for organic masses; `bmesh` for custom shapes; primitives plus `bevel()` for hard-surface parts; Mirror, Array, Screw, Solidify modifiers for symmetry, repetition and lathed shapes.
 - Parts of one object must physically connect: overlap joints slightly. Nothing floats unless the brief says so.
 - Build repeated detail with loops (spokes, fence posts, leaves, windows).
@@ -59,7 +66,9 @@ Then read the PNGs and go through this list before calling it done:
 - **Framing:** the scene camera shows the whole subject with some margin.
 - **Materials:** no pure black or neon surprises; remove every unlinked node the inspector lists.
 
-Previews default to EEVEE. `--engine workbench` is fastest for checking shapes; `--engine cycles` works everywhere, including machines without a GPU. Keep previews small (640 px) to save time and tokens; look at only the views you need.
+Previews default to EEVEE. `--engine workbench` is fastest for checking shapes; it shows each material's viewport color, which the template's `material()` sets (set `mat.diffuse_color` yourself for materials you build another way, or Workbench shows them grey). `--engine cycles` works everywhere and uses the GPU when there is one (Metal, OptiX, CUDA, HIP, oneAPI), falling back to the CPU. Cycles on a GPU often matches EEVEE's speed and handles stone, ambient occlusion and bounce light much better. Keep previews small (640 px) to save time and tokens; look at only the views you need.
+
+`--camera NAME` renders the camera view through a named camera instead of the scene camera, `--aspect H/W` overrides its aspect ratio, and `--frame N` renders that frame of an animation.
 
 ## 4. Revise
 
@@ -76,22 +85,22 @@ For the final still, render through the scene camera at full resolution:
     --blend scenes/pelican/pelican.blend --out scenes/pelican/renders --views camera --res 1920 --samples 64
 ```
 
-For animation, keyframe in the build script, then render video directly from Blender (no ffmpeg needed):
+For animation, keyframe in the build script (set `scene.frame_start`, `frame_end` and `render.fps` there), then render the video with the helper. It writes an H.264 MP4 directly (no ffmpeg needed) and runs Cycles on the GPU:
 
-```python
-scene.frame_start, scene.frame_end = 1, 120
-scene.render.fps = 24
-im = scene.render.image_settings
-if hasattr(im, "media_type"):          # Blender 5.x
-    im.media_type = "VIDEO"
-im.file_format = "FFMPEG"
-scene.render.ffmpeg.format = "MPEG4"
-scene.render.ffmpeg.codec = "H264"
-scene.render.filepath = "//renders/turntable_"   # "//" = relative to the .blend
-bpy.ops.render.render(animation=True)
+```bash
+"$BLENDER" --background --factory-startup --python "<skill dir>/scripts/render_animation.py" -- \
+    --blend scenes/pelican/pelican.blend --out scenes/pelican/renders/shot.mp4 --res 1280 --samples 64
 ```
 
-Render a short, low-resolution test (about 24 frames at 480 px) before the full animation.
+Before the full render:
+- Check the key moments as stills (`render_preview.py --views camera --frame N` for the first frame, each camera key and the last). This catches a subject that leaves the frame or ends up hidden behind scenery.
+- Render a short, low-resolution test clip (`--frames 1-24 --res 480 --samples 16`), and time a few full-quality frames to estimate the whole render. Run long renders in the background.
+
+Animating parts of a model:
+- Give each moving group an Empty at its pivot (wheel axle, crank, hip, knee, neck base) and parent the parts to it without moving them: call `bpy.context.view_layer.update()`, save each part's `matrix_world`, set its `parent`, and restore `matrix_world`. Then keyframe the Empty's rotation.
+- When one motion drives another (legs on pedals, wheel spin from distance traveled), compute the pose for every frame in the script (for example two-bone IK in the leg's plane) and key every frame, instead of hoping sparse keys line up.
+- Set `bpy.context.preferences.edit.keyframe_new_interpolation_type` to `"LINEAR"` before keying every frame and to `"BEZIER"` for sparse eased keys such as a camera move. This sets new keys' interpolation without the F-curve API, which changed in 5.x.
+- For a camera move, key the camera's location and `data.lens` at a few frames and aim it with a Track To constraint at a keyed target Empty.
 
 If this skill sits in the AI Scene Generator repo, its camera presets (turntable, slow_zoom, dramatic_reveal, orbit_rise, vertigo, showcase_loop, fly_over, pull_back) can be reused:
 
@@ -103,6 +112,15 @@ camera_animation.animate_preset("turntable", target=(0, 0, 1.0))   # sets frames
 ```
 
 For an existing rigged model, run `inspect_scene.py` to list its bones, then keyframe `pose.bones["name"].rotation_euler` (set `rotation_mode = "XYZ"` first) in a script that opens the user's file.
+
+## Working from a reference photo
+
+When the user gives a photo to model from (or asks for something real, like a landmark):
+
+1. **Gather facts, not just pictures.** Look up the real dimensions and plan (height, footprint, number of bays or floors), and one view the photo doesn't show, such as an aerial or a plan, if web tools are available. A single photo fixes proportions from one side only.
+2. **Put a camera where the photographer stood.** Add a second camera (keep the scene camera for the final shot) at the photo's eye height and direction, and match its field of view. A stitched panorama or very wide photo needs a panoramic camera: `cam.data.type = "PANO"`, `cam.data.panorama_type = "EQUIRECTANGULAR"` (or `"CENTRAL_CYLINDRICAL"`), and `longitude_min/max` and `latitude_min/max` in radians to match the photo's horizontal and vertical span. Panoramic cameras render in Cycles only; `render_preview.py` switches to Cycles for them.
+3. **Compare and refit.** Render that camera at the photo's aspect (`--views camera --camera NAME --aspect H/W`) and compare it with the photo feature by feature: where the horizon falls, and the image height of known levels (floors, terraces, rooflines). When they disagree, fix the model's proportions or the camera position, not the photo camera's lens.
+4. **Then frame the real shot.** Once the match camera agrees with the photo, compose the final shot with the scene camera. It doesn't need to copy the photo.
 
 ## Working on the user's existing .blend
 

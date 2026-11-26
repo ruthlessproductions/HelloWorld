@@ -3,11 +3,15 @@
 Usage:
   "$BLENDER" --background --factory-startup --python render_preview.py -- \
       --blend scene.blend --out previews/ [--views camera,front,right,three_quarter,top] \
-      [--res 640] [--engine eevee|workbench|cycles] [--samples 16]
+      [--res 640] [--engine eevee|workbench|cycles] [--samples 16] \
+      [--camera NAME] [--aspect H/W] [--frame N]
 
-"camera" renders through the scene's own camera at the scene's aspect ratio; the other
-views use temporary 4:3 cameras that frame the whole subject (large flat ground planes
-are ignored for framing). --res is the image width.
+"camera" renders through the scene's own camera (or the camera named by --camera) at the
+scene's aspect ratio (or --aspect); the other views use temporary 4:3 cameras that frame the
+whole subject (large flat ground planes are ignored for framing). --res is the image width.
+--frame renders the scene at that frame of its animation.
+Panoramic cameras render in Cycles only, so the camera view switches to Cycles for them.
+Cycles uses the GPU when one is available (Metal, OptiX, CUDA, HIP, oneAPI).
 Prints the path of each PNG written.
 """
 
@@ -40,7 +44,28 @@ def parse_args():
     parser.add_argument("--res", type=int, default=640, help="width in pixels; height is 3/4 of it")
     parser.add_argument("--engine", default="eevee", choices=["eevee", "workbench", "cycles"])
     parser.add_argument("--samples", type=int, default=16)
+    parser.add_argument("--camera", help="camera object for the camera view (default: the scene camera)")
+    parser.add_argument("--aspect", type=float, help="height/width for the camera view (default: the scene's)")
+    parser.add_argument("--frame", type=int, help="animation frame to render")
     return parser.parse_args(argv)
+
+
+def use_gpu(scene):
+    """Point Cycles at the first GPU backend with a device; fall back to the CPU."""
+    prefs = bpy.context.preferences.addons["cycles"].preferences
+    for backend in ("METAL", "OPTIX", "CUDA", "HIP", "ONEAPI"):
+        try:
+            prefs.compute_device_type = backend
+        except TypeError:          # backend not built into this Blender
+            continue
+        prefs.get_devices()
+        if any(d.type == backend for d in prefs.devices):
+            for d in prefs.devices:
+                d.use = d.type == backend
+            scene.cycles.device = "GPU"
+            return backend
+    scene.cycles.device = "CPU"
+    return "CPU"
 
 
 def engine_id(name):
@@ -111,11 +136,11 @@ def main():
     render.image_settings.file_format = "PNG"
     if args.engine == "eevee":
         scene.eevee.taa_render_samples = args.samples
-    elif args.engine == "cycles":
-        scene.cycles.samples = args.samples
     elif args.engine == "workbench":
         scene.display.shading.light = "STUDIO"
         scene.display.shading.color_type = "MATERIAL"
+    scene.cycles.samples = args.samples     # also used when a panoramic camera forces Cycles
+    print(f"cycles device: {use_gpu(scene)}")
 
     if args.engine != "workbench" and not any(o.type == "LIGHT" for o in scene.objects) and scene.world is None:
         sun = bpy.data.objects.new("PreviewSun", bpy.data.lights.new("PreviewSun", "SUN"))
@@ -123,18 +148,25 @@ def main():
         sun.rotation_euler = (math.radians(45), 0, math.radians(30))
         scene.collection.objects.link(sun)
 
-    center, radius = subject_bounds(scene)
     stem = os.path.splitext(os.path.basename(args.blend))[0]
-    original_camera = scene.camera
+    if args.frame is not None:
+        scene.frame_set(args.frame)
+        stem = f"{stem}_f{args.frame:04d}"
+    center, radius = subject_bounds(scene)
+    original_camera = bpy.data.objects[args.camera] if args.camera else scene.camera
 
     for view in [v.strip() for v in args.views.split(",") if v.strip()]:
         render.resolution_x = args.res
+        render.engine = engine_id(args.engine)
         if view == "camera":
             if original_camera is None:
                 print("skip camera view: scene has no camera")
                 continue
             scene.camera = original_camera
-            render.resolution_y = round(args.res * camera_aspect)
+            render.resolution_y = round(args.res * (args.aspect or camera_aspect))
+            if original_camera.data.type == "PANO" and args.engine != "cycles":
+                print("panoramic camera: rendering the camera view in Cycles")
+                render.engine = "CYCLES"
         elif view in VIEW_DIRECTIONS:
             scene.camera = framing_camera(scene, center, radius, VIEW_DIRECTIONS[view])
             render.resolution_y = round(args.res * 3 / 4)
