@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.pytest_cache/
+dist/
+build/
+
+# Blender
+*.blend1
+
+# macOS
+.DS_Store
+
+# Local stack logins and generated AYON setup template
+stack/.env
+stack/ayon/template.json
+
+# Third-party checkouts used by `stack/setup.py build` and the sample builder
+/vendor/

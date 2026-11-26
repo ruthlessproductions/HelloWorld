@@ -12,6 +12,8 @@ Helpers in this skill's directory (`<skill dir>` below):
 - `scripts/inspect_scene.py`: object sizes in meters, parts that float or sink below ground, bones, materials with unlinked nodes.
 - `scripts/render_preview.py`: preview PNGs from the scene camera and from framing views, without changing the file.
 - `scripts/render_animation.py`: renders the animation to an MP4 (or PNG frames), without changing the file.
+- `scripts/render_passes.py`: renders a shot's control passes for diffusion models (depth, normals, segmentation, edges, quick beauty) as PNG sequences and MP4s.
+- `scripts/solve_camera.py`: solves a camera (location, rotation, lens) from points measured in a reference image. Plain Python, no Blender needed.
 
 ## 1. Find Blender
 
@@ -113,14 +115,42 @@ camera_animation.animate_preset("turntable", target=(0, 0, 1.0))   # sets frames
 
 For an existing rigged model, run `inspect_scene.py` to list its bones, then keyframe `pose.bones["name"].rotation_euler` (set `rotation_mode = "XYZ"` first) in a script that opens the user's file.
 
+## Handing a shot to a diffusion model
+
+Blender is strongest at layout, camera moves, timing and physical plausibility; image and video diffusion models are strongest at surface realism (reflections, dust, foliage, skin). To combine them, don't chase the final look in Blender. Render control passes and let the model paint the surfaces:
+
+```bash
+"$BLENDER" --background --factory-startup --python "<skill dir>/scripts/render_passes.py" -- \
+    --blend scenes/shot/shot.blend --out scenes/shot/passes --res 1280
+```
+
+This writes `depth`, `normal`, `segmentation`, `edges` and a quick EEVEE `beauty` pass, as numbered PNGs and one MP4 each, plus `passes.json` with the frame range, fps, resolution and depth range. EEVEE and Workbench passes take seconds per frame, where a final Cycles render can take many times longer.
+
+- **Depth** is white near and black far, normalized once over the whole shot so it doesn't flicker. The default `--depth-mode inverse` follows MiDaS and Depth Anything; far ground comes out nearly black when the depth range is large, and `--depth-mode linear` keeps more far detail.
+- **Normals** are camera-space: red is right, green is up, blue is toward the camera.
+- **Segmentation** gives each object a flat random color that stays the same across frames; use it for masks.
+- **Edges** come from depth and normal breaks and object boundaries, so there's no texture noise. Swarms of small objects (debris, leaves) show up as dense speckle.
+- Pure volume objects (haze, smoke) are left out of the data passes.
+
+Which pass to send depends on the model: depth (or edges) for models that follow structure frame by frame; the beauty MP4 for video-to-video restyling or as a reference video; a single beauty frame as the first frame for image-to-video.
+
 ## Working from a reference photo
 
 When the user gives a photo to model from (or asks for something real, like a landmark):
 
 1. **Gather facts, not just pictures.** Look up the real dimensions and plan (height, footprint, number of bays or floors), and one view the photo doesn't show, such as an aerial or a plan, if web tools are available. A single photo fixes proportions from one side only.
-2. **Put a camera where the photographer stood.** Add a second camera (keep the scene camera for the final shot) at the photo's eye height and direction, and match its field of view. A stitched panorama or very wide photo needs a panoramic camera: `cam.data.type = "PANO"`, `cam.data.panorama_type = "EQUIRECTANGULAR"` (or `"CENTRAL_CYLINDRICAL"`), and `longitude_min/max` and `latitude_min/max` in radians to match the photo's horizontal and vertical span. Panoramic cameras render in Cycles only; `render_preview.py` switches to Cycles for them.
-3. **Compare and refit.** Render that camera at the photo's aspect (`--views camera --camera NAME --aspect H/W`) and compare it with the photo feature by feature: where the horizon falls, and the image height of known levels (floors, terraces, rooflines). When they disagree, fix the model's proportions or the camera position, not the photo camera's lens.
-4. **Then frame the real shot.** Once the match camera agrees with the photo, compose the final shot with the scene camera. It doesn't need to copy the photo.
+2. **Put a camera where the photographer stood.** Add a second camera (keep the scene camera for the final shot), and solve its position rather than guessing (step 3). A stitched panorama or very wide photo needs a panoramic camera: `cam.data.type = "PANO"`, `cam.data.panorama_type = "EQUIRECTANGULAR"` (or `"CENTRAL_CYLINDRICAL"`), and `longitude_min/max` and `latitude_min/max` in radians to match the photo's horizontal and vertical span. Panoramic cameras render in Cycles only; `render_preview.py` switches to Cycles for them.
+3. **Solve the camera from measurements.** Pick 6 or more features in the reference whose 3D positions you know in the model: building corners, where a wall meets the ground, a car's center, the top of a post. Spread them across the frame and at different depths. Measure each as a frame fraction (x from the left edge, y from the top), put them in a JSON file, and run:
+
+   ```bash
+   python3 "<skill dir>/scripts/solve_camera.py" points.json --width 1920
+   ```
+
+   It prints `cam.location`, `cam.rotation_euler` and `cam.data.lens` ready to paste, plus each point's error in pixels. An error under about 0.5% of the frame width is a good fit. Fix the lens with `--lens` when it's known. (Not for panoramic cameras.)
+4. **When the fit stays bad, question the scene, not the camera.** A persistent error means an assumption in the model is wrong: a size, where something is, or timing. Make the doubtful quantity a parameter and fit it along with the camera (copy the solver's approach into a scratch script). Example: in a car-jump shot, nothing fit until the car's speed was a free parameter; the shot turned out to be in slow motion.
+5. **For a moving shot,** solve two or three key frames, then build the camera path between them (keyframes, or a path relative to the moving subject). Render the same frame numbers as the reference and compare them side by side (ffmpeg `hstack`/`vstack` makes quick comparison sheets and videos).
+6. **Compare and refit.** Render that camera at the photo's aspect (`--views camera --camera NAME --aspect H/W`) and compare it with the photo feature by feature: where the horizon falls, and the image height of known levels (floors, terraces, rooflines). When they disagree, fix the model's proportions or the camera position, not the photo camera's lens.
+7. **Then frame the real shot.** Once the match camera agrees with the photo, compose the final shot with the scene camera. It doesn't need to copy the photo.
 
 ## Working on the user's existing .blend
 
