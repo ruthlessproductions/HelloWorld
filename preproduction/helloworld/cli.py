@@ -7,6 +7,8 @@
   helloworld kitsu pull cut.otio --task-type Layout --stage previs
                                                          newest Kitsu previews -> the cut
 
+  helloworld app                                       the web app that runs all of this: http://localhost:8765
+
 Kitsu credentials come from KITSU_HOST, KITSU_EMAIL and KITSU_PASSWORD (or the flags).
 """
 
@@ -201,7 +203,19 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--activate", action="store_true")
             p.add_argument("-o", "--output")
             p.set_defaults(func=cmd_kitsu_pull)
+
+    p = sub.add_parser("app", help="run the HelloWorld web app (http://localhost:8765)")
+    p.add_argument("--port", type=int, help="port to serve on (default 8765)")
+    p.add_argument("--projects", help="projects folder (default ~/Documents/HelloWorld Projects)")
+    p.add_argument("--no-browser", action="store_true", help="don't open a browser window")
+    p.set_defaults(func=cmd_app)
     return parser
+
+
+def cmd_app(args) -> int:
+    from .app.server import serve
+
+    return serve(port=args.port, projects_dir=args.projects, open_browser=not args.no_browser)
 
 
 def main(argv=None) -> int:

@@ -13,6 +13,9 @@ build/
 # macOS
 .DS_Store
 
+# The app's local settings (its WebDAV password) and build output
+/.app/
+
 # Local stack logins and generated AYON setup template
 stack/.env
 stack/ayon/template.json
