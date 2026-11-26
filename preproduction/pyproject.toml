@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "helloworld"
+version = "0.1.0"
+description = "Glue for an open filmmaking stack: Open Shot Designer planning, Kitsu + AYON tracking, OpenTimelineIO into Blender for finishing."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "HelloWorld contributors" }]
+keywords = ["film", "pre-production", "storyboard", "kitsu", "ayon", "opentimelineio", "blender"]
+dependencies = [
+    "opentimelineio>=0.17",
+    "gazu>=1.0",
+    "pillow>=10.0",
+    # the local web app (helloworld app)
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+helloworld = "helloworld.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["helloworld"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

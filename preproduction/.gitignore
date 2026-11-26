@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.pytest_cache/
+dist/
+build/
+
+# Blender
+*.blend1
+
+# macOS
+.DS_Store
+
+# The app's local settings (its WebDAV password) and build output
+/.app/
+
+# Local stack logins and generated AYON setup template
+stack/.env
+stack/ayon/template.json
+
+# Third-party checkouts used by `stack/setup.py build` and the sample builder
+/vendor/

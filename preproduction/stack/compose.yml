@@ -1,0 +1,84 @@
+# The tracking half of the open filmmaking stack, running locally:
+#   Kitsu  http://localhost:8080   production tracking and review (CGWire, AGPL-3.0)
+#   AYON   http://localhost:5005   pipeline and asset management (Ynput, Apache-2.0)
+#   kitsu-processor                AYON's Kitsu addon service: mirrors Kitsu into AYON
+#
+# Start it with `python stack/setup.py up`, which writes .env and ayon/template.json first.
+# Every port is bound to 127.0.0.1, so nothing is reachable from the network.
+#
+# On Apple Silicon, AYON's published images are x86-only; `python stack/setup.py build` builds
+# native ones from the same release sources (helloworld/ayon-server, helloworld/ayon-kitsu-processor).
+
+name: helloworld
+
+services:
+  kitsu:
+    image: cgwire/cgwire:latest
+    restart: unless-stopped
+    ports: ["127.0.0.1:${KITSU_PORT:-8080}:80"]
+    volumes:
+      - kitsu-db:/var/lib/postgresql
+      - kitsu-previews:/opt/zou/previews
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ayon
+      POSTGRES_PASSWORD: ayon
+      POSTGRES_DB: ayon
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ayon"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - ayon-db:/var/lib/postgresql/data
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ayon:
+    image: ${AYON_IMAGE:-helloworld/ayon-server:1.17.8}
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports: ["127.0.0.1:${AYON_PORT:-5005}:5000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/info"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - ./ayon/template.json:/template.json:ro  # users, secrets and the initial addon bundle
+      - ayon-addons:/addons
+      - ayon-storage:/storage
+
+  # Runs AYON's Kitsu addon service directly instead of through AYON's service host (ASH).
+  kitsu-processor:
+    image: ${KITSU_PROCESSOR_IMAGE:-helloworld/ayon-kitsu-processor:1.2.8}
+    restart: unless-stopped
+    profiles: ["sync"]
+    depends_on:
+      ayon: { condition: service_healthy }
+      kitsu: { condition: service_started }
+    environment:
+      AYON_SERVER_URL: http://ayon:5000
+      AYON_API_KEY: ${AYON_API_KEY:?run python stack/setup.py up first}
+      AYON_ADDON_NAME: kitsu
+      AYON_ADDON_VERSION: ${KITSU_ADDON_VERSION:-1.2.8}
+      AYON_SERVICE_NAME: kitsu-processor
+
+volumes:
+  kitsu-db: {}
+  kitsu-previews: {}
+  ayon-db: {}
+  ayon-addons: {}
+  ayon-storage: {}

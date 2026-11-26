@@ -1,0 +1,20 @@
+schema_version = "1.0.0"
+
+id = "helloworld_otio"
+version = "0.1.0"
+name = "HelloWorld OTIO"
+tagline = "OpenTimelineIO cuts with boards, previs and finals per shot"
+maintainer = "HelloWorld contributors"
+type = "add-on"
+tags = ["Sequencer", "Import-Export", "Pipeline"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+# No wheels are bundled yet: the add-on offers to pip install opentimelineio on first use.
+# For offline installs, put the opentimelineio wheels for each platform in ./wheels and list
+# them here, e.g. wheels = ["./wheels/opentimelineio-0.18.1-cp313-cp313-macosx_11_0_arm64.whl"]
+# wheels = []
+
+[permissions]
+files = "Reads and writes timeline files and the media they point to"
+network = "Optionally downloads the opentimelineio package from PyPI"
